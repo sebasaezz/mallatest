@@ -1,0 +1,267 @@
+:root{
+  /* Theme tokens (light defaults) */
+  --bg:#ffffff;
+  --surface:#fafafa;
+  --card:#ffffff;
+  --text:#111111;
+  --muted:#666666;
+  --border:#dddddd;
+
+  /* Status colors */
+  --ok:#eaffea;           /* legacy (no longer used as full background for aprobado) */
+  --warn:#fff6d6;
+  --bad:#ffe6e6;
+  --info:#e7f2ff;
+  --info-border:#b9d7ff;
+
+  /* Accents */
+  --approved-accent:#2f8f3a;
+}
+
+/* Explicit theme override via JS: document.documentElement.dataset.theme = "dark" */
+:root[data-theme="dark"]{
+  --bg:#0f1115;
+  --surface:#141821;
+  --card:#161b25;
+  --text:#e8edf6;
+  --muted:#a7b0c0;
+  --border:#2a3140;
+
+  --warn:#3b2f12;
+  --bad:#3a1a1a;
+  --info:#12263a;
+  --info-border:#2b5a8a;
+
+  --approved-accent:#50c878;
+}
+
+body{
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  margin:14px;
+  background:var(--bg);
+  color:var(--text);
+}
+
+h1{margin:0 0 8px}
+
+.muted{color:var(--muted)}
+.top,.bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0}
+.pill{border:1px solid var(--border);border-radius:999px;padding:6px 10px;background:var(--card)}
+.pill.toggle{display:flex;gap:8px;align-items:center}
+
+.legend{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:6px 0 10px}
+.legend .item{display:flex;gap:8px;align-items:center;border:1px solid var(--border);border-radius:999px;padding:6px 10px;background:var(--card)}
+.legend .sw{width:12px;height:12px;border-radius:4px;border:1px solid var(--border);background:var(--swatch, transparent)}
+.legend .lbl{font-size:12px;color:var(--muted)}
+
+/* Concentraciones (colores) */
+.course.cat-mscb{--course-color:#FFCA08}
+.course.cat-major{--course-color:#F1592A}
+.course.cat-minor{--course-color:#D8DD26}
+.course.cat-fi{--course-color:#56A2D6}
+.course.cat-ofg{--course-color:#7389C5}
+.course.cat-extra{--course-color:#CCCCCC}
+
+input[type="text"],input[type="number"],select,button{
+  border:1px solid var(--border);
+  border-radius:10px;
+  padding:8px 10px;
+  background:var(--card);
+  color:var(--text);
+}
+
+button{cursor:pointer}
+button:hover{filter:brightness(0.96)}
+
+.grid-wrap{
+  overflow-x:auto;
+  border:1px solid var(--border);
+  border-radius:14px;
+  padding:10px;
+  background:var(--surface)
+}
+.grid{display:flex;gap:12px;align-items:flex-start;min-height:420px}
+
+.term{
+  min-width:280px;max-width:280px;
+  border:1px solid var(--border);
+  border-radius:14px;
+  background:var(--card);
+  box-shadow:0 1px 0 rgba(0,0,0,.04)
+}
+.term-h{padding:10px 10px 8px;border-bottom:1px solid var(--border);display:flex;justify-content:flex-start;gap:8px;align-items:baseline}
+.term-title{font-weight:900}
+.term-sub{font-size:12px;color:var(--muted)}
+.term-credits{font-size:12px;padding:3px 8px;border-radius:999px;border:1px solid var(--border);margin-left:auto}
+.term-credits.warn{background:var(--warn);border-color:#ffe08a}
+.term-credits.bad{background:var(--bad);border-color:#f3b0b0}
+
+/* Botón para eliminar período vacío (solo draft + custom) */
+.term-del{
+  border:1px solid var(--border);
+  border-radius:10px;
+  width:34px;height:30px;
+  padding:0;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  font-size:16px;
+  line-height:1;
+  background:var(--card);
+  color:var(--text);
+  opacity:.75
+}
+.term-del:hover{opacity:1;filter:brightness(0.96)}
+
+.list{padding:10px;display:flex;flex-direction:column;gap:8px;min-height:220px}
+.drop-hint{border:2px dashed var(--border);border-radius:12px;padding:10px;text-align:center;color:var(--muted);display:none}
+.list.dragover .drop-hint{display:block}
+
+.course{
+  position:relative;
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:8px 10px;
+  background:var(--card);
+  --course-color: #CCCCCC;
+}
+.course::before{
+  content:"";
+  position:absolute;
+  left:0;
+  top:0;
+  bottom:0;
+  width:6px;
+  border-radius:12px 0 0 12px;
+  background:var(--course-color);
+}
+.course.drag{cursor:grab}
+
+/* Click unlock: curso seleccionado + parpadeo de desbloqueados (JS: .unlock-selected / .unlock-blink)
+   Nota: evitamos color-mix() para compatibilidad. */
+.course.unlock-selected{
+  outline:3px solid var(--course-color);
+  outline-offset:2px;
+}
+
+.course.unlock-blink{
+  animation:unlockPulse .95s ease-in-out infinite;
+}
+@keyframes unlockPulse{
+  0%,100%{box-shadow:0 0 0 0 transparent}
+  50%{box-shadow:0 0 0 4px var(--course-color)}
+}
+@media (prefers-reduced-motion: reduce){
+  .course.unlock-blink{animation:none;box-shadow:0 0 0 4px var(--course-color)}
+}
+
+/* Aprobado: NO pinta el fondo (se indica con ✓). Evitamos usar el borde izquierdo porque lo ocupa la concentración. */
+.course.aprobado:not(.bad){
+  border-color:color-mix(in srgb, var(--approved-accent) 35%, var(--border));
+}
+
+/* (app.js agregará un .status-badge dentro de .course para mostrar ✓) */
+.status-badge{
+  position:absolute;
+  top:8px;
+  right:10px;
+  font-size:11px;
+  padding:2px 8px;
+  border-radius:999px;
+  border:1px solid var(--border);
+  background:var(--card);
+  color:var(--text);
+}
+.status-badge.approved{
+  border-color:color-mix(in srgb, var(--approved-accent) 55%, var(--border));
+}
+.status-badge.inline{
+  position:static;
+  top:auto;
+  right:auto;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  line-height:1;
+}
+
+.course.bad{background:var(--bad);border-color:#f3b0b0}
+.course.bad::before{background:color-mix(in srgb, var(--course-color) 60%, transparent)}
+.course .row1{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.row1-right{display:flex;gap:8px;align-items:center}
+.sigla{font-weight:900}
+.cred{font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid var(--border);color:var(--text)}
+.name{font-size:12px;color:var(--muted);margin-top:4px}
+.tags{margin-top:6px;display:flex;gap:6px;flex-wrap:wrap}
+.tag{font-size:11px;border:1px solid var(--border);border-radius:999px;padding:2px 8px;background:var(--card)}
+.tag.warn{background:var(--warn);border-color:#ffe08a}
+.tag.bad{background:var(--bad);border-color:#f3b0b0}
+
+/* Notice (toast fijo arriba-derecha; cerrar NO ignora) */
+.notice{
+  position:fixed;
+  top:14px;
+  right:14px;
+  width:min(20vw,360px);
+  max-width:calc(100vw - 28px);
+  z-index:9000; /* por debajo del modal (9999) */
+
+  border:1px solid var(--border);
+  background:var(--card);
+  border-radius:14px;
+  padding:12px 12px;
+  display:none;
+  align-items:center;
+  gap:10px;
+
+  box-shadow:0 8px 24px rgba(0,0,0,.18);
+  opacity:1;
+  transition:opacity .3s ease
+}
+.notice.fading{opacity:0}
+.notice.soft{border-color:#ffe08a;background:var(--warn)}
+.notice.hard{border-color:#f3b0b0;background:var(--bad)}
+.notice.info{border-color:var(--info-border);background:var(--info)}
+.notice .txt{flex:1}
+.notice .x{
+  border:1px solid var(--border);
+  border-radius:10px;
+  width:34px;height:30px;
+  padding:0;
+  line-height:28px;
+  text-align:center;
+  background:var(--card);
+  cursor:pointer;
+  color:var(--text);
+  opacity:.8
+}
+.notice .x:hover{opacity:1;filter:brightness(0.96)}
+
+@media (max-width: 700px){
+  .notice{
+    right:14px;
+    left:14px;
+    width:auto;
+  }
+}
+
+/* Modal warnings */
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;align-items:center;justify-content:center;padding:18px;z-index:9999}
+.modal{width:min(760px,96vw);max-height:84vh;overflow:auto;background:var(--card);border:1px solid var(--border);border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+.modal-h{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-bottom:1px solid var(--border)}
+.modal-title{font-weight:900}
+.modal-controls{display:flex;gap:8px;align-items:center}
+.chk{display:flex;gap:6px;align-items:center;user-select:none}
+.modal-body{padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+
+.w-item{border:1px solid var(--border);border-radius:12px;padding:10px 12px;display:flex;gap:10px;align-items:flex-start;background:var(--card)}
+.w-dot{width:10px;height:10px;border-radius:999px;margin-top:6px;border:1px solid var(--border)}
+.w-dot.soft{background:var(--warn);border-color:#ffe08a}
+.w-dot.hard{background:var(--bad);border-color:#f3b0b0}
+.w-main{flex:1}
+.w-text{font-size:13px}
+.w-sub{font-size:12px;color:var(--muted);margin-top:2px}
+.w-actions button{padding:6px 10px;border-radius:10px}
+
+details{margin-top:10px}
+pre{white-space:pre-wrap;word-break:break-word;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:10px}

@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Malla</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <h1>Malla</h1>
+
+  <div class="top">
+    <div class="pill muted">Base: <span id="base"></span></div>
+    <div class="pill muted">Versión: <span id="ver"></span></div>
+    <div class="pill muted">Cursos: <b id="count">0</b></div>
+    <label class="pill toggle"><input id="draftToggle" type="checkbox" /> <b>Modo borrador</b></label>
+    <label class="pill toggle" title="Tema claro/oscuro"><input id="themeToggle" type="checkbox" /> <b>Oscuro</b></label>
+
+    <input id="filter" type="text" placeholder="Filtrar (sigla/nombre)" />
+    <button id="reloadBtn" type="button">Recargar</button>
+    <button id="saveBtn" type="button" disabled>Guardar</button>
+    <button id="resetBtn" type="button">Reset</button>
+  </div>
+
+  <div class="bar">    <button class="pill" id="warningsBtn" type="button">Warnings: <b id="warnCount">0</b></button>
+
+    <span class="muted">Agregar período (solo borrador):</span>
+    <input id="addYear" type="number" placeholder="Año" style="width:100px;" />
+    <select id="addSem">
+      <option value="0">0 (V)</option>
+      <option value="1">1 (I)</option>
+      <option value="2">2 (P)</option>
+    </select>
+    <button id="addTermBtn" type="button" disabled>Agregar</button>
+  </div>
+
+  <div class="legend" id="legend" aria-label="Leyenda de colores"></div>
+
+  <div class="notice" id="notice" role="status" aria-live="polite">
+    <div class="txt" id="noticeText"></div>
+    <button class="x" id="noticeClose" type="button" aria-label="Cerrar">×</button>
+  </div>
+
+  <div class="modal-backdrop" id="warningsModal">
+    <div class="modal" role="dialog" aria-modal="true" aria-label="Warnings">
+      <div class="modal-h">
+        <div class="modal-title">Warnings</div>
+        <div class="modal-controls">
+          <label class="pill toggle"><input id="showIgnored" type="checkbox" /> <span class="muted">Mostrar ignorados</span></label>
+          <button id="warningsClose" type="button">Cerrar</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div id="warningsList"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="courseModal">
+    <div class="modal" role="dialog" aria-modal="true" aria-label="Crear curso (borrador)">
+      <div class="modal-h">
+        <div class="modal-title">Crear curso (borrador)</div>
+        <div class="modal-controls">
+          <button id="courseClose" type="button">Cerrar</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div class="form">
+          <label class="field">
+            <span class="lbl">Sigla</span>
+            <input id="cSigla" type="text" placeholder="Ej: MAT1610" autocomplete="off" />
+          </label>
+
+          <label class="field">
+            <span class="lbl">Nombre</span>
+            <input id="cNombre" type="text" placeholder="Nombre del curso" />
+          </label>
+
+          <label class="field">
+            <span class="lbl">Créditos</span>
+            <input id="cCreditos" type="number" min="0" step="1" placeholder="0" />
+          </label>
+
+          <label class="field">
+            <span class="lbl">Prerrequisitos</span>
+            <input id="cPrereq" type="text" placeholder="Si no tiene, dejar vacío" autocomplete="off" />
+            <div class="suggest" id="cPrereqSuggest" aria-label="Sugerencias prerrequisitos"></div>
+          </label>
+
+          <label class="field">
+            <span class="lbl">Correquisitos</span>
+            <input id="cCoreq" type="text" placeholder="Si no tiene, dejar vacío" autocomplete="off" />
+            <div class="suggest" id="cCoreqSuggest" aria-label="Sugerencias correquisitos"></div>
+          </label>
+
+          <div class="field">
+            <span class="lbl">Semestres ofrecido</span>
+            <div class="chips" role="group" aria-label="Semestres ofrecido">
+              <label class="chip"><input id="cOffV" type="checkbox" value="V" /> V</label>
+              <label class="chip"><input id="cOffI" type="checkbox" value="I" /> I</label>
+              <label class="chip"><input id="cOffP" type="checkbox" value="P" /> P</label>
+            </div>
+          </div>
+
+          <label class="field">
+            <span class="lbl">Concentración</span>
+            <select id="cConc">
+              <option value="MScB">MScB</option>
+              <option value="M">M</option>
+              <option value="m">m</option>
+              <option value="FI">FI</option>
+              <option value="OFG">OFG</option>
+              <option value="ex">ex</option>
+            </select>
+          </label>
+
+          <div class="form-actions">
+            <button id="courseCreate" type="button">Crear</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid-wrap">
+    <div class="grid" id="grid"></div>
+  </div>
+
+  <details>
+    <summary class="muted">Debug (payload)</summary>
+    <pre id="debugPre"></pre>
+  </details>
+
+  <script src="/app.js"></script>
+</body>
+</html>
+
