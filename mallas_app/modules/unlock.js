@@ -246,7 +246,17 @@ export function setUnlockEnabled(on) {
  * @param {{ gridId?: string, enabled?: boolean, onSecondClick?: (courseId: string, courseEl: HTMLElement) => void }} opts
  */
 export function initUnlock(opts = {}) {
-  if (_installed) return;
+  // Allow calling initUnlock multiple times to update options (common after modular reloads).
+  // First call installs listeners; subsequent calls only update flags/callbacks.
+  if (_installed) {
+    if ("enabled" in opts) _enabled = !!opts.enabled;
+    if ("onSecondClick" in opts) {
+      _onSecondClick = typeof opts.onSecondClick === "function" ? opts.onSecondClick : null;
+    }
+    scheduleRefresh();
+    return;
+  }
+
   _installed = true;
 
   _enabled = opts.enabled !== undefined ? !!opts.enabled : true;
