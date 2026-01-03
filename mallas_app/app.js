@@ -298,11 +298,17 @@ function buildEffectiveTermsAndPlacements(allTerms, allCourses, draft) {
   const order = Array.isArray(draft?.term_order) ? draft.term_order : [];
   let terms = Array.from(termsById.values());
   if (order.length) {
-    const idx = new Map(order.map((id, i) => [id, i]));
+    // IMPORTANT: keep chronological order (termIndex) as the primary sort key.
+    // term_order only breaks ties / stabilizes ordering, otherwise custom terms
+    // would jump to the far-left just because they are present in term_order.
+    const idx = new Map(order.map((id, i) => [String(id), i]));
     terms.sort((a, b) => {
-      const ia = idx.has(a.term_id) ? idx.get(a.term_id) : 999999;
-      const ib = idx.has(b.term_id) ? idx.get(b.term_id) : 999999;
-      return (ia - ib) || (termIndex(a.term_id) - termIndex(b.term_id));
+      const ta = termIndex(a.term_id);
+      const tb = termIndex(b.term_id);
+      if (ta !== tb) return ta - tb;
+      const ia = idx.has(a.term_id) ? (idx.get(a.term_id) ?? 999999) : 999999;
+      const ib = idx.has(b.term_id) ? (idx.get(b.term_id) ?? 999999) : 999999;
+      return (ia - ib) || String(a.term_id || "").localeCompare(String(b.term_id || ""));
     });
   } else {
     terms.sort((a, b) => termIndex(a.term_id) - termIndex(b.term_id));
@@ -401,8 +407,7 @@ function render(terms, courses, placements, warnings) {
       del.title = "Eliminar período vacío";
       del.addEventListener("click", (ev) => {
         ev.stopPropagation();
-        if (!confirm(`¿Eliminar el período vacío ${t.term_id}?`)) return;
-        const tid = t.term_id;
+                const tid = t.term_id;
         state.draft.custom_terms = (Array.isArray(state.draft.custom_terms) ? state.draft.custom_terms : []).filter(x => String(x?.term_id || "") !== tid);
         state.draft.term_order = (Array.isArray(state.draft.term_order) ? state.draft.term_order : []).filter(x => String(x || "") !== tid);
         if (state.draft.placements && typeof state.draft.placements === "object") {
