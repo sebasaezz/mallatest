@@ -338,7 +338,8 @@ function computeWarnings(terms, courses, placementsMap, draft, config) {
   const normalizedCourses = (courses || []).map((c) => {
     const prs = normalizePrereqs(c?.prerrequisitos);
     const onlyPrereq = prs.filter((p) => !p.isCo).map((p) => p.code);
-    return { ...c, prerrequisitos: onlyPrereq };
+    const coreqs = prs.filter((p) => p.isCo).map((p) => p.code);
+    return { ...c, prerrequisitos: onlyPrereq, corequisitos: coreqs };
   });
 
   return computeWarningsBase(terms, normalizedCourses, placementsObj, draft, config) || [];
