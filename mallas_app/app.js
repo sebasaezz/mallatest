@@ -329,8 +329,9 @@ function buildEffectiveTermsAndPlacements(allTerms, allCourses, draft) {
 // ---------- warnings (soft/hard) ----------
 // Adapter notes:
 // - modules/warnings.js expects placements as a plain object (not Map).
-// - our frontmatter encodes correquisitos as "CODIGO(c)"; the warning module treats prereqs as plain codes.
-//   We strip correquisitos from the list passed to the warning module (so they don't generate false "unknown prereq" warnings).
+// - our frontmatter encodes correquisitos as "CODIGO(c)".
+//   We pass them as `corequisitos: [...]` (for proper co-req warnings) and strip them from `prerrequisitos`
+//   so they don't generate false "unknown prereq" warnings.
 function computeWarnings(terms, courses, placementsMap, draft, config) {
   const placementsObj = Object.fromEntries(placementsMap?.entries?.() || []);
 
