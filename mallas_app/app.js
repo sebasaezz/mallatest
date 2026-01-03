@@ -9,6 +9,12 @@ import { showNotice, hideNotice } from "./modules/toasts.js";
 import { getConfig, getAll, getDraft, saveDraft } from "./modules/api.js";
 import { state, setData, rebuildMaps } from "./modules/state.js";
 import { computeWarnings as computeWarningsBase } from "./modules/warnings.js";
+import {
+  initRender,
+  fullRender as fullRenderMod,
+  openWarningsModal as openWarningsModalMod,
+  closeWarningsModal as closeWarningsModalMod,
+} from "./modules/render.js";
 
 // State moved to modules/state.js (kept as a single shared object).
 let ADD_TERM_TOUCHED=false; // si el usuario tocó addYear/addSem, no auto-sobrescribir
@@ -428,7 +434,7 @@ function render(terms, courses, placements, warnings) {
         }
         state.dirtyDraft = true;
         updateDraftButtons();
-        fullRender();
+    fullRenderMod();
         showNotice("info", `Período eliminado: ${tid}.`);
       });
       th.appendChild(del);
@@ -623,7 +629,7 @@ async function resetDraftFromServer() {
   ADD_TERM_TOUCHED = false;
   state.dirtyDraft = false;
   updateDraftButtons();
-  fullRender();
+  fullRenderMod();
   showNotice("info", "Borrador reseteado (se recargó desde disco)." );
 }
 
@@ -646,7 +652,7 @@ function initHandlers() {
     try {
       await loadAll();
       renderLegend();
-      fullRender();
+      fullRenderMod();
       showNotice("info", "Recargado.");
     } catch (e) {
       showNotice("hard", String(e.message || e));
@@ -675,15 +681,15 @@ function initHandlers() {
   state.draftMode = !!$("draftToggle")?.checked;
   updateDraftButtons();
 
-  on("filter", "input", fullRender);
-  on("warningsBtn", "click", openWarningsModal);
-  on("warningsClose", "click", closeWarningsModal);
+  on("filter", "input", fullRenderMod);
+  on("warningsBtn", "click", openWarningsModalMod);
+  on("warningsClose", "click", closeWarningsModalMod);
 
   on("warningsModal", "click", (ev) => {
-    if (ev.target === $("warningsModal")) closeWarningsModal();
+    if (ev.target === $("warningsModal")) closeWarningsModalMod();
   });
 
-  on("showIgnored", "change", fullRender);
+  on("showIgnored", "change", fullRenderMod);
 
   // Si el usuario toca los controles de "Agregar período", no volver a auto-setear defaults.
   for (const ev of ["input", "change"]) {
@@ -720,7 +726,7 @@ function initHandlers() {
 
     state.dirtyDraft = true;
     updateDraftButtons();
-    fullRender();
+    fullRenderMod();
     showNotice("info", `Período agregado: ${tid}.`);
   });
 }
@@ -728,10 +734,11 @@ function initHandlers() {
 async function main() {
   try {
     initHandlers();
+    initRender({ computeWarnings });
     loadTheme();
     await loadAll();
     renderLegend();
-    fullRender();
+    fullRenderMod();
   } catch (e) {
     showNotice("hard", String(e.message || e));
   }
