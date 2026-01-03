@@ -7,6 +7,9 @@
 let CONFIG=null, ALL=null, DRAFT=null;
 let draftMode=false, dirtyDraft=false;
 let ADD_TERM_TOUCHED=false; // si el usuario tocó addYear/addSem, no auto-sobrescribir
+let CREATE_TERM_ID=null;
+let LAST_TERMS=[];
+let LAST_COURSES=[];
 
 const $ = (id) => document.getElementById(id);
 const on = (id, ev, fn) => $(id)?.addEventListener(ev, fn);
@@ -176,12 +179,33 @@ async function fetchJSON(url, opts) {
   return data;
 }
 
+function ensureDraftDefaults() {
+  if (!DRAFT || typeof DRAFT !== "object") DRAFT = {};
+  if (!Array.isArray(DRAFT.temp_courses)) DRAFT.temp_courses = [];
+}
+
+const getEffectiveCourses = () => {
+  const base = Array.isArray(ALL?.courses) ? ALL.courses : [];
+  const tmp = Array.isArray(DRAFT?.temp_courses) ? DRAFT.temp_courses : [];
+  return [...base, ...tmp];
+};
+
+const getSiglaSet = () => {
+  const set = new Set();
+  for (const c of getEffectiveCourses()) {
+    const s = String(c?.sigla || "").trim().toUpperCase();
+    if (s) set.add(s);
+  }
+  return set;
+};
+
 async function loadAll() {
   [CONFIG, ALL, DRAFT] = await Promise.all([
     fetchJSON("/api/config"),
     fetchJSON("/api/all"),
     fetchJSON("/api/draft"),
   ]);
+  ensureDraftDefaults();
 
   $("ver").textContent = ALL?.version || "";
   $("base").textContent = ALL?.debug?.base_dir || "";
@@ -212,6 +236,48 @@ function normalizePrereqs(rawList) {
     out.push(m ? { code: m[1].trim(), isCo: true, raw: item } : { code: item, isCo: false, raw: item });
   }
   return out;
+}
+
+// ---------- nuevo curso temporal ----------
+const parseCodes = (str) => {
+  return String(str || "")
+    .split(/[^A-Za-z0-9]+/g)
+    .map(s => s.trim().toUpperCase())
+    .filter(Boolean);
+};
+
+const buildPrereqList = (prStr, coStr) => {
+  const prereq = parseCodes(prStr);
+  const coreq = parseCodes(coStr).map(c => `${c}(c)`);
+  const out = [...prereq, ...coreq];
+  return out.length ? out : ["nt"];
+};
+
+function wireSuggest(inputEl, menuEl, getter) {
+  if (!inputEl || !menuEl) return;
+  const close = () => { menuEl.innerHTML = ""; menuEl.style.display = "none"; };
+
+  inputEl.addEventListener("input", () => {
+    const parts = String(inputEl.value || "").split(/[,\\s]+/);
+    const token = (parts[parts.length - 1] || "").trim().toUpperCase();
+    const opts = token ? (getter(token) || []) : [];
+    if (!opts.length) return close();
+    menuEl.innerHTML = "";
+    for (const opt of opts.slice(0, 8)) {
+      const item = mk("div", "suggest-item", opt);
+      item.addEventListener("mousedown", (ev) => {
+        ev.preventDefault();
+        parts[parts.length - 1] = opt;
+        const val = parts.filter(Boolean).join(", ");
+        inputEl.value = val;
+        close();
+      });
+      menuEl.appendChild(item);
+    }
+    menuEl.style.display = "block";
+  });
+  inputEl.addEventListener("blur", () => setTimeout(close, 120));
+  inputEl.addEventListener("keydown", (ev) => { if (ev.key === "Escape") close(); });
 }
 
 // ---------- Unlock view (click) ----------
@@ -430,6 +496,8 @@ function computeWarnings(terms, courses, placements, draft) {
 function render(terms, courses, placements, warnings) {
   const filter = ($("filter")?.value || "").trim().toLowerCase();
   const showIgnored = !!$("showIgnored")?.checked;
+  LAST_TERMS = terms || [];
+  LAST_COURSES = courses || [];
 
   // Debug
   const dbg = DEBUG_COLORS && !_dbgLogged;
@@ -589,7 +657,7 @@ function render(terms, courses, placements, warnings) {
       add.title = `Agregar curso en ${t.term_id}`;
       add.dataset.termId = t.term_id;
       add.draggable = false;
-      add.addEventListener("click", (ev) => { ev.stopPropagation(); });
+      add.addEventListener("click", (ev) => { ev.stopPropagation(); openCourseModal(t.term_id); });
       list.appendChild(add);
     }
 
@@ -667,17 +735,115 @@ function renderWarningsModal(activeWarnings) {
   }
 }
 
+// ---------- course modal ----------
+const resetCourseForm = (termId) => {
+  CREATE_TERM_ID = termId || null;
+  const label = $("courseTermLabel");
+  if (label) label.textContent = CREATE_TERM_ID ? `Destino: ${CREATE_TERM_ID}` : "Destino: (sin período)";
+  const fields = [
+    ["cSigla", ""], ["cNombre", ""], ["cCreditos", ""],
+    ["cPrereq", ""], ["cCoreq", ""],
+  ];
+  for (const [id, val] of fields) {
+    const el = $(id);
+    if (el) el.value = val;
+  }
+  const sel = $("cConcentracion");
+  if (sel) sel.value = "ex";
+  for (const id of ["cSemV", "cSemI", "cSemP"]) {
+    const ch = $(id); if (ch) ch.checked = false;
+  }
+  for (const id of ["cPrereqSuggest", "cCoreqSuggest"]) {
+    const sg = $(id);
+    if (sg) { sg.innerHTML = ""; sg.style.display = "none"; }
+  }
+};
+
+const fallbackTermId = () => {
+  if (CREATE_TERM_ID) return CREATE_TERM_ID;
+  if (LAST_TERMS?.length) return LAST_TERMS[LAST_TERMS.length - 1]?.term_id || "";
+  if (Array.isArray(ALL?.terms) && ALL.terms.length) return ALL.terms[ALL.terms.length - 1]?.term_id || "";
+  return "";
+};
+
+const openCourseModal = (termId) => {
+  resetCourseForm(termId || fallbackTermId());
+  const el = $("courseModal");
+  if (el) el.style.display = "flex";
+  $("cSigla")?.focus();
+};
+
+const closeCourseModal = () => {
+  CREATE_TERM_ID = null;
+  const el = $("courseModal");
+  if (el) el.style.display = "none";
+};
+
+function handleCourseSubmit(ev) {
+  try { ev.preventDefault(); } catch {}
+  if (!draftMode) return showNotice("hard", "Solo disponible en modo borrador.");
+  ensureDraftDefaults();
+
+  const sigla = String($("cSigla")?.value || "").trim().toUpperCase();
+  if (!sigla) return showNotice("hard", "La sigla es obligatoria.");
+
+  const known = getSiglaSet();
+  if (known.has(sigla)) return showNotice("hard", `La sigla ${sigla} ya existe.`);
+
+  const nombre = String($("cNombre")?.value || "").trim();
+  const creditos = parseInt(String($("cCreditos")?.value || "0"), 10) || 0;
+  const prereqRaw = $("cPrereq")?.value || "";
+  const coreqRaw = $("cCoreq")?.value || "";
+  const prerequisitos = buildPrereqList(prereqRaw, coreqRaw);
+
+  const checkSet = new Set(known);
+  checkSet.add(sigla);
+  const missing = [...new Set([...parseCodes(prereqRaw), ...parseCodes(coreqRaw)].filter(c => !checkSet.has(c)))];
+  if (missing.length) showNotice("soft", `Siglas no encontradas: ${missing.join(", ")}`);
+
+  const semestreOfrecido = [];
+  for (const id of ["cSemV", "cSemI", "cSemP"]) {
+    const el = $(id);
+    if (el?.checked && el.value) semestreOfrecido.push(el.value);
+  }
+
+  const cat = normalizeCat($("cConcentracion")?.value || "ex");
+  const term_id = fallbackTermId();
+  const course_id = `draft:${sigla}`;
+
+  const curso = {
+    course_id, term_id, sigla, nombre, creditos,
+    aprobado: false,
+    concentracion: cat,
+    prerrequisitos,
+    semestreOfrecido,
+    frontmatter: {},
+  };
+
+  DRAFT.temp_courses.push(curso);
+  DRAFT.placements = DRAFT.placements || {};
+  if (term_id) DRAFT.placements[course_id] = term_id;
+
+  dirtyDraft = true;
+  updateDraftButtons();
+  fullRender();
+  closeCourseModal();
+  showNotice("info", `Curso agregado: ${sigla}.`);
+}
+
 const openWarningsModal = () => { const el = $("warningsModal"); if (el) el.style.display = "flex"; };
 const closeWarningsModal = () => { const el = $("warningsModal"); if (el) el.style.display = "none"; };
 
 function fullRender() {
   if (!ALL || !CONFIG || !DRAFT) return;
 
-  const { terms, placements } = buildEffectiveTermsAndPlacements(ALL.terms, ALL.courses, DRAFT);
-  Unlock.buildAdj(ALL.courses);
-  setAddTermDefaultIfUntouched(terms, ALL.courses, placements);
+  ensureDraftDefaults();
+  const coursesEff = getEffectiveCourses();
+  const { terms, placements } = buildEffectiveTermsAndPlacements(ALL.terms, coursesEff, DRAFT);
+  Unlock.buildAdj(coursesEff);
+  setAddTermDefaultIfUntouched(terms, coursesEff, placements);
 
-  const warnings = computeWarnings(terms, ALL.courses, placements, DRAFT);
+  const warnings = computeWarnings(terms, coursesEff, placements, DRAFT);
 
   // show first (non-ignored) hard, else soft (banner)
   const showIgnored = !!$("showIgnored")?.checked;
@@ -689,7 +855,7 @@ function fullRender() {
   else if (firstSoft) showNotice("soft", firstSoft.text);
   else hideNotice();
 
-  render(terms, ALL.courses, placements, warnings);
+  render(terms, coursesEff, placements, warnings);
 }
 
 async function saveDraftToServer() {
@@ -705,6 +871,7 @@ async function saveDraftToServer() {
 
 async function resetDraftFromServer() {
   DRAFT = await fetchJSON("/api/draft");
+  ensureDraftDefaults();
   ADD_TERM_TOUCHED = false;
   dirtyDraft = false;
   updateDraftButtons();
@@ -767,6 +934,16 @@ function initHandlers() {
   on("warningsModal", "click", (ev) => {
     if (ev.target === $("warningsModal")) closeWarningsModal();
   });
+
+  on("courseModal", "click", (ev) => {
+    if (ev.target === $("courseModal")) closeCourseModal();
+  });
+  on("courseClose", "click", closeCourseModal);
+  on("courseCancel", "click", (ev) => { try { ev.preventDefault(); } catch {} closeCourseModal(); });
+  on("courseForm", "submit", handleCourseSubmit);
+
+  wireSuggest($("cPrereq"), $("cPrereqSuggest"), (tok) => Array.from(getSiglaSet()).filter(s => s.startsWith(tok)));
+  wireSuggest($("cCoreq"), $("cCoreqSuggest"), (tok) => Array.from(getSiglaSet()).filter(s => s.startsWith(tok)));
 
   on("showIgnored", "change", fullRender);
 

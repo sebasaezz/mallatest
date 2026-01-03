@@ -322,7 +322,7 @@ def discover_all(b: Path):
 # ---------- draft ----------
 
 def draft_default():
-    return {"term_order": [], "placements": {}, "custom_terms": [], "ignored_warnings": {}}
+    return {"term_order": [], "placements": {}, "custom_terms": [], "ignored_warnings": {}, "temp_courses": []}
 
 
 def draft_path(b: Path) -> Path:
@@ -343,6 +343,8 @@ def sanitize_draft(d: dict) -> dict:
         d["custom_terms"] = []
     if not isinstance(d["ignored_warnings"], dict):
         d["ignored_warnings"] = {}
+    if not isinstance(d["temp_courses"], list):
+        d["temp_courses"] = []
     return d
 
 

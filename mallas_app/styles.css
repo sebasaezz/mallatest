@@ -282,3 +282,23 @@ button:hover{filter:brightness(0.96)}
 
 details{margin-top:10px}
 pre{white-space:pre-wrap;word-break:break-word;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:10px}
+
+/* Modal: crear curso temporal */
+.course-form{display:grid;grid-template-columns:repeat(auto-fit, minmax(230px, 1fr));gap:12px}
+.field{display:flex;flex-direction:column;gap:4px}
+.field label{font-size:13px;color:var(--muted)}
+.form-actions{grid-column:1/-1;display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
+.chip-row{display:flex;gap:8px}
+.chip{display:inline-flex;gap:6px;align-items:center;padding:6px 10px;border:1px solid var(--border);border-radius:10px;background:var(--surface);cursor:pointer;user-select:none}
+.chip input{margin:0}
+.suggest{position:relative;display:none}
+.suggest .suggest-item{
+  position:relative;
+  margin-top:4px;
+  border:1px solid var(--border);
+  border-radius:10px;
+  background:var(--card);
+  padding:6px 10px;
+  cursor:pointer;
+}
+.suggest .suggest-item:hover{filter:brightness(0.96)}
