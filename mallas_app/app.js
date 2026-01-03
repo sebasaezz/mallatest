@@ -15,6 +15,7 @@ import {
   openWarningsModal as openWarningsModalMod,
   closeWarningsModal as closeWarningsModalMod,
 } from "./modules/render.js";
+import { initDragDrop } from "./modules/dragdrop.js";
 
 // State moved to modules/state.js (kept as a single shared object).
 let ADD_TERM_TOUCHED=false; // si el usuario tocó addYear/addSem, no auto-sobrescribir
@@ -488,13 +489,6 @@ function render(terms, courses, placements, warnings) {
         })() : null,
       );
 
-      if (state.draftMode) {
-        card.addEventListener("dragstart", (ev) => {
-          ev.dataTransfer.setData("text/plain", c.course_id);
-          ev.dataTransfer.effectAllowed = "move";
-        });
-      }
-
       list.appendChild(card);
 
       if (dbg && dbgLeft > 0) {
@@ -516,27 +510,6 @@ function render(terms, courses, placements, warnings) {
       add.draggable = false;
       add.addEventListener("click", (ev) => { ev.stopPropagation(); });
       list.appendChild(add);
-    }
-
-    if (state.draftMode) {
-      list.addEventListener("dragover", (ev) => {
-        ev.preventDefault();
-        list.classList.add("dragover");
-        ev.dataTransfer.dropEffect = "move";
-      });
-      list.addEventListener("dragleave", () => list.classList.remove("dragover"));
-      list.addEventListener("drop", (ev) => {
-        ev.preventDefault();
-        list.classList.remove("dragover");
-        const cid = ev.dataTransfer.getData("text/plain");
-        const tid = list.dataset.termId;
-        if (!cid || !tid) return;
-        state.draft.placements = state.draft.placements || {};
-        state.draft.placements[cid] = tid;
-        state.dirtyDraft = true;
-        updateDraftButtons();
-        fullRender();
-      });
     }
 
     append(col, th, list);
@@ -735,6 +708,17 @@ async function main() {
   try {
     initHandlers();
     initRender({ computeWarnings });
+
+    // Drag & drop (draft only). Saving remains manual via the Save button.
+    initDragDrop({
+      update: () => {
+        updateDraftButtons();
+        fullRenderMod();
+      },
+      saveDraft: async (_draft) => {},
+      notify: null,
+    });
+
     loadTheme();
     await loadAll();
     renderLegend();
