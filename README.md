@@ -1,45 +1,72 @@
 # Sistema de Mallas
 
-Aplicación para gestionar mallas curriculares organizadas por carpetas semestrales (`AAAA-S`). Cada curso se define en un archivo Markdown amigable con Obsidian: el código lee su _frontmatter_ y genera una malla navegable en una web autohosteada. El proyecto es compatible con PyInstaller para crear un ejecutable que abre directamente la malla en el navegador.
+Aplicación local para **visualizar y planificar una malla curricular** a partir de un *vault* de **Obsidian** (archivos Markdown con *frontmatter* YAML). El backend en **Python** descubre semestres y cursos desde el filesystem, expone una **API local** y sirve una UI web (HTML/JS/CSS) compatible con **PyInstaller**.
+
+---
+
+## Cómo funciona (visión general)
+
+1. **Descubrimiento en disco (Python)**
+
+   * El script `malla_app.py` busca carpetas de semestre con nombre `AAAA-S` (ej. `2024-1`).
+   * Dentro de cada semestre intenta usar `,Cursos` o `Cursos` como carpeta raíz de cursos. Si no existe, recorre el semestre completo.
+   * Cada curso es un `.md` cuyo *frontmatter* se parsea para construir el catálogo (`sigla`, `nombre`, `créditos`, etc.).
+
+2. **Servidor local + API**
+
+   * `malla_app.py` levanta un servidor HTTP en `127.0.0.1` en un puerto libre.
+   * Sirve la UI desde `mallas_app/` (o desde `_internal/mallas_app/` si viene empaquetado).
+   * Expone endpoints `/api/*` para que la UI cargue datos y guarde el borrador.
+
+3. **UI (JavaScript) y borrador persistente**
+
+   * La UI consume `GET /api/all` para obtener `terms` y `courses`.
+   * El “modo borrador” permite reordenar cursos sin tocar los Markdown reales.
+   * Ese estado se guarda en `malla_draft.json` mediante `POST /api/draft`.
+
+---
 
 ## Características principales
 
-- Visualización interactiva de la malla por semestres (incluye verano `TAV`).
-- **Click y dependencias:** al seleccionar un curso se resaltan los cursos que desbloquea.
-- **Modo borrador:** mover cursos con _drag & drop_ y recibir alertas por semestres no ofrecidos, correquisitos o prerrequisitos faltantes.
-- Añadir nuevos semestres desde la UI (sugiere el siguiente período no verano).
-- Codificación de color según la categoría del curso (MScB, Major, Minor, FI, OFG, extra).
-- Sistema de notificaciones para estados y alertas.
-- Botón (no funcional) para crear curso al activar el modo borrador.
+* **Visualización interactiva** de la malla por semestres (incluye verano).
+* **Unlock view:** al hacer click en un curso se resalta y parpadean los cursos que desbloquea (transitivamente).
+* **Modo borrador:** mover cursos con *drag & drop* y recibir alertas por:
 
-### Próximas mejoras
+  * semestres no ofrecidos,
+  * correquisitos,
+  * prerrequisitos faltantes,
+  * sobrecarga de créditos.
+* **Semestres futuros:** añadir nuevos períodos desde la UI.
+* **Color coding** según `concentracion`/`concentración`.
+* **Toasts** arriba a la derecha para info/warns.
 
-- Crear curso desde la UI en modo borrador.
-- Eliminar cursos en borrador.
-- Exportar curso a disco (para integrarlo a Obsidian o guardar localmente).
-- Eliminar cursos desde disco.
-- Menús de curso al hacer segundo click (marcar aprobado, editar _frontmatter_).
-- Crear nuevas categorías desde la UI con selector de color y persistencia en disco.
-- Unlock para correquisitos.
+### Estado del botón “crear curso”
+
+El botón “crear curso” puede existir en la UI, pero la acción de crear cursos temporales y materializarlos al filesystem está en roadmap (ver más abajo).
+
+---
 
 ## Estructura de carpetas
 
 ```
 <raíz>/
   malla_app.py          # Servidor local y lógica de descubrimiento
-  mallas_app/           # UI (index.html, app.js, styles.css)
+  mallas_app/           # UI (index.html, app.js, styles.css, modules/*)
   malla_draft.json      # Estado de borrador (se genera automáticamente)
   2024-1/               # Semestres en formato AAAA-S (0=Verano, 1=I, 2=P)
-    Cursos/             # Carpetas de cursos; si no existe se recorre el semestre completo
+    Cursos/             # Cursos; si no existe se recorre el semestre completo
       INF-101.md
       ...
 ```
 
-Los semestres se detectan por nombre de carpeta `AAAA-S`. Los cursos se buscan dentro de `Cursos` o `,Cursos`; si no se encuentran, se indexan todos los `.md` del semestre.
+* Semestres: se detectan por patrón `AAAA-S`.
+* Cursos: se buscan en `,Cursos` o `Cursos` (case-insensitive). Si no existen, se indexan todos los `.md` del semestre.
+
+---
 
 ## Formato de cursos (frontmatter)
 
-Ejemplo básico para un curso compatible con Obsidian:
+Ejemplo compatible con Obsidian:
 
 ```markdown
 ---
@@ -49,62 +76,90 @@ creditos: 10
 aprobado: false
 concentracion: FI        # MScB, M, m, FI, OFG, ex
 prerrequisitos: [MAT-100]
-semestreOfrecido: [1, 2] # Opcional: semestres donde se ofrece
+semestreOfrecido: [I, P] # Opcional: períodos donde se ofrece (I/P/V)
 ---
 
 Descripción libre en Markdown.
 ```
 
-Campos disponibles:
+Campos usados por el backend:
 
-- `sigla`, `nombre`, `creditos`, `aprobado` (bool).
-- `concentracion`/`concentración` (categoría usada para color).
-- `prerrequisitos`: lista o string separado por comas (se ignora `NT`).
-- `semestreOfrecido`: lista con semestres donde se dicta.
+* `sigla`, `nombre`, `creditos`/`créditos`, `aprobado`.
+* `concentracion`/`concentración`.
+* `prerrequisitos`: lista o string separado por comas (se ignora `NT`).
+* `semestreOfrecido`: lista (valores típicos: `I`, `P`, `V`).
+
+> Nota: el backend soporta parseo con PyYAML (si está instalado). Si no, usa un parser mínimo compatible con `key: value` y listas `- item`.
+
+---
+
+## Borrador y persistencia (`malla_draft.json`)
+
+El borrador se guarda en la raíz como `malla_draft.json` y contiene, entre otros:
+
+* `placements`: ubicación de cursos por `term_id`.
+* `term_order`: orden de semestres en UI.
+* `custom_terms`: semestres creados desde la UI.
+* `ignored_warnings`: warnings ignorados (persistentes).
+
+Este archivo se crea automáticamente cuando se guarda por primera vez.
+
+---
+
+## API local
+
+* `GET /api/config`: configuración general (versión, límites de créditos, tema).
+* `GET /api/all`: términos, cursos y datos de depuración.
+* `GET /api/draft` / `POST /api/draft`: leer/guardar estado de borrador.
+
+---
 
 ## Ejecución local
 
 Requisitos:
 
-- Python 3.10+.
-- Dependencias estándar de la biblioteca; PyYAML es opcional (mejora el _parsing_ de frontmatter).
+* Python 3.10+.
+* Dependencias estándar (PyYAML opcional).
 
 Pasos:
 
-1. Ubica `malla_app.py` en la raíz que contiene las carpetas semestrales.
+1. Ubica `malla_app.py` en la raíz que contiene las carpetas `AAAA-S`.
+
 2. Ejecuta:
 
    ```bash
    python malla_app.py
    ```
 
-3. El servidor levanta en un puerto local libre y abre el navegador automáticamente.
+3. Se abrirá el navegador con la UI en un puerto local libre.
 
-### Binario con PyInstaller
+---
 
-El script está preparado para empaquetarse; un flujo típico es:
+## PyInstaller
+
+El proyecto está diseñado para empaquetarse con PyInstaller. Asegúrate de incluir la carpeta `mallas_app/` junto al ejecutable (o dentro de `_internal/`). Si la UI no se encuentra, el servidor mostrará una página de respaldo.
+
+Ejemplo típico:
 
 ```bash
 pyinstaller --onefile malla_app.py
 ./dist/malla_app
 ```
 
-Coloca el ejecutable junto a las carpetas de semestres y `mallas_app/`. Si la UI falta, el sistema mostrará una página de respaldo simple.
+---
 
-## Modo borrador y persistencia
+## Roadmap (v1.0.0)
 
-- El estado (posiciones de cursos, términos personalizados, advertencias ignoradas) se guarda en `malla_draft.json` en la raíz.
-- Los botones de guardar/restablecer borrador se habilitan al activar el modo borrador.
-- El botón inferior de “crear curso” está presente, pero aún no implementa la acción.
+* Crear cursos temporales desde la UI (solo en borrador).
+* Eliminar cursos temporales.
+* Materializar cursos temporales al filesystem (crear carpetas/Markdown reales).
+* Menú contextual de curso (aprobar, editar frontmatter).
+* Categorías dinámicas con color y persistencia.
 
-## API local (para referencias)
-
-- `GET /api/config`: Configuración general (versión, límites de créditos, temas).
-- `GET /api/all`: Términos, cursos y datos de depuración.
-- `GET /api/draft` / `POST /api/draft`: Leer/guardar estado de borrador.
+---
 
 ## Contribuciones
 
-1. Mantén el formato de carpetas `AAAA-S` y los archivos `.md` con _frontmatter_ válido.
-2. Asegúrate de que `mallas_app/` se incluya junto al ejecutable para la experiencia completa.
-3. Prueba el modo borrador para verificar advertencias y color _coding_ antes de empaquetar.
+1. Mantén el formato `AAAA-S` y archivos `.md` con *frontmatter* válido.
+2. Incluye `mallas_app/` junto al ejecutable para la experiencia completa.
+3. Verifica modo borrador (warnings + colores) antes de empaquetar.
