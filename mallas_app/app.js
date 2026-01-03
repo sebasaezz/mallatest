@@ -16,6 +16,7 @@ import {
   closeWarningsModal as closeWarningsModalMod,
 } from "./modules/render.js";
 import { initDragDrop } from "./modules/dragdrop.js";
+import { initUnlock } from "./modules/unlock.js";
 
 // State moved to modules/state.js (kept as a single shared object).
 let ADD_TERM_TOUCHED=false; // si el usuario tocó addYear/addSem, no auto-sobrescribir
@@ -205,87 +206,6 @@ function normalizePrereqs(rawList) {
   return out;
 }
 
-// ---------- Unlock view (click) ----------
-const Unlock = {
-  adj: null, dom: new Map(), active: [], selId: null, selEl: null,
-
-  buildAdj(courses){
-    const norm = (x) => String(x || "").trim().toUpperCase();
-    const bySigla = new Map();
-    for (const c of (courses || [])) {
-      const s = norm(c?.sigla);
-      if (s) bySigla.set(s, c);
-    }
-    const tmp = new Map();
-    for (const c of (courses || [])) {
-      for (const pr of normalizePrereqs(c?.prerrequisitos)) {
-        if (pr.isCo) continue;
-        const req = bySigla.get(norm(pr?.code));
-        if (!req?.course_id || !c?.course_id) continue;
-        if (!tmp.has(req.course_id)) tmp.set(req.course_id, new Set());
-        tmp.get(req.course_id).add(c.course_id);
-      }
-    }
-    const adj = new Map();
-    for (const [k, s] of tmp.entries()) adj.set(k, Array.from(s));
-    this.adj = adj;
-  },
-
-  collect(startId){
-    const adj = this.adj;
-    if (!adj || !startId) return [];
-    const out = [], visited = new Set([startId]), q = [startId];
-    for (let i = 0; i < q.length; i++) {
-      for (const nid of (adj.get(q[i]) || [])) {
-        if (!nid || visited.has(nid)) continue;
-        visited.add(nid);
-        out.push(nid);
-        q.push(nid);
-      }
-    }
-    return out;
-  },
-
-  clearBlink(){
-    for (const el of this.active) { try { el.classList.remove("unlock-blink"); } catch {} }
-    this.active = [];
-  },
-  applyBlink(startId){
-    this.clearBlink();
-    for (const id of this.collect(startId)) {
-      const el = this.dom.get(id);
-      if (!el) continue;
-      el.classList.add("unlock-blink");
-      this.active.push(el);
-    }
-  },
-
-  clear(){
-    if (this.selEl) { try { this.selEl.classList.remove("unlock-selected"); } catch {} }
-    this.selId = null; this.selEl = null;
-    this.clearBlink();
-  },
-  toggle(courseId){
-    if (!courseId) return;
-    if (this.selId === courseId) return this.clear();
-
-    if (this.selEl) { try { this.selEl.classList.remove("unlock-selected"); } catch {} }
-    this.selId = courseId;
-    this.selEl = this.dom.get(courseId) || null;
-    if (this.selEl) this.selEl.classList.add("unlock-selected");
-    this.applyBlink(courseId);
-  },
-  reapply(){
-    if (!this.selId) return;
-    const el = this.dom.get(this.selId);
-    if (!el) { this.selEl = null; this.clearBlink(); return; }
-    if (this.selEl && this.selEl !== el) { try { this.selEl.classList.remove("unlock-selected"); } catch {} }
-    this.selEl = el;
-    el.classList.add("unlock-selected");
-    this.applyBlink(this.selId);
-  },
-};
-
 // ---------- draft terms + placements ----------
 function buildEffectiveTermsAndPlacements(allTerms, allCourses, draft) {
   const termsById = new Map();
@@ -399,9 +319,6 @@ function render(terms, courses, placements, warnings) {
 
   const grid = $("grid");
   grid.innerHTML = "";
-  Unlock.dom = new Map();
-  Unlock.clearBlink();
-  grid.onclick = (ev) => { if (!ev.target.closest(".course")) Unlock.clear(); };
 
   for (const t of terms) {
     const col = mk("div", "term");
@@ -461,10 +378,6 @@ function render(terms, courses, placements, warnings) {
       card.draggable = !!state.draftMode;
       card.dataset.courseId = c.course_id;
 
-      // unlock click
-      Unlock.dom.set(c.course_id, card);
-      card.addEventListener("click", (ev) => { ev.stopPropagation(); Unlock.toggle(c.course_id); });
-
       const isApproved = (c.aprobado === true);
       if (isApproved) card.classList.add("aprobado");
 
@@ -523,7 +436,6 @@ function render(terms, courses, placements, warnings) {
     console.log("[DBG colors] Tip: si varColor está bien pero no se ve la franja, revisa si algún border-left de .aprobado está tapando el lado izquierdo.");
   }
 
-  Unlock.reapply();
   renderWarningsModal(activeWarnings);
 }
 
@@ -556,7 +468,7 @@ function renderWarningsModal(activeWarnings) {
       else state.draft.ignored_warnings[w.id] = true;
       state.dirtyDraft = true;
       updateDraftButtons();
-      fullRender();
+    fullRenderMod();
     });
     actions.appendChild(btn);
 
@@ -572,7 +484,7 @@ function fullRender() {
   if (!state.all || !state.config || !state.draft) return;
 
   const { terms, placements } = buildEffectiveTermsAndPlacements(state.all.terms, state.all.courses, state.draft);
-  Unlock.buildAdj(state.all.courses);
+
   setAddTermDefaultIfUntouched(terms, state.all.courses, placements);
 
   const warnings = computeWarnings(terms, state.all.courses, placements, state.draft, state.config);
@@ -718,6 +630,9 @@ async function main() {
       saveDraft: async (_draft) => {},
       notify: null,
     });
+
+    // Unlock view (click a course to highlight + blink unlocks)
+    initUnlock({ gridId: "grid", enabled: true });
 
     loadTheme();
     await loadAll();
