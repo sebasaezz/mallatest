@@ -6,6 +6,7 @@
 
 import { byId } from "./modules/utils.js";
 import { showNotice, hideNotice } from "./modules/toasts.js";
+import { getConfig, getAll, getDraft, saveDraft } from "./modules/api.js";
 
 let CONFIG=null, ALL=null, DRAFT=null;
 let draftMode=false, dirtyDraft=false;
@@ -156,20 +157,11 @@ function clearWarnNotice(){
 }
 
 
-async function fetchJSON(url, opts) {
-  const res = await fetch(url, opts);
-  const txt = await res.text();
-  let data = null;
-  try { data = JSON.parse(txt); } catch { data = txt; }
-  if (!res.ok) throw new Error((data && data.error) ? data.error : `HTTP ${res.status}`);
-  return data;
-}
-
 async function loadAll() {
   [CONFIG, ALL, DRAFT] = await Promise.all([
-    fetchJSON("/api/config"),
-    fetchJSON("/api/all"),
-    fetchJSON("/api/draft"),
+    getConfig(),
+    getAll(),
+    getDraft(),
   ]);
 
   $("ver").textContent = ALL?.version || "";
@@ -682,18 +674,14 @@ function fullRender() {
 }
 
 async function saveDraftToServer() {
-  await fetchJSON("/api/draft", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(DRAFT || {}, null, 2),
-  });
+  await saveDraft(DRAFT || {});
   dirtyDraft = false;
   updateDraftButtons();
   showNotice("info", "Borrador guardado.");
 }
 
 async function resetDraftFromServer() {
-  DRAFT = await fetchJSON("/api/draft");
+  DRAFT = await getDraft();
   ADD_TERM_TOUCHED = false;
   dirtyDraft = false;
   updateDraftButtons();
