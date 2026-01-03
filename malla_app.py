@@ -13,7 +13,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 APP_NAME = "malla_app"
-APP_VERSION = "0.9.5"
+APP_VERSION = "0.9.51"
 
 TERM_RE = re.compile(r"^(?P<y>\d{4})-(?P<s>[012])(?:\b|$)")
 COURSE_DIRS = [",Cursos", "Cursos"]
@@ -322,13 +322,7 @@ def discover_all(b: Path):
 # ---------- draft ----------
 
 def draft_default():
-    return {
-        "term_order": [],
-        "placements": {},
-        "custom_terms": [],
-        "ignored_warnings": {},
-        "temp_courses": [],
-    }
+    return {"term_order": [], "placements": {}, "custom_terms": [], "ignored_warnings": {}}
 
 
 def draft_path(b: Path) -> Path:
@@ -349,8 +343,6 @@ def sanitize_draft(d: dict) -> dict:
         d["custom_terms"] = []
     if not isinstance(d["ignored_warnings"], dict):
         d["ignored_warnings"] = {}
-    if not isinstance(d.get("temp_courses"), list):
-        d["temp_courses"] = []
     return d
 
 

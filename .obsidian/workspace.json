@@ -184,5 +184,13 @@
     }
   },
   "active": "cceed0accc60e9dc",
-  "lastOpenFiles": []
+  "lastOpenFiles": [
+    "malla_app.py",
+    "mallas_app/app.js",
+    "mallas_app/styles.css",
+    "mallas_app/index.html",
+    "mallas_app/logic.js",
+    "mallas_app/api.js",
+    "mallas_app/dom.js"
+  ]
 }

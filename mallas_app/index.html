@@ -46,85 +46,18 @@
       <div class="modal-h">
         <div class="modal-title">Warnings</div>
         <div class="modal-controls">
-          <label class="pill toggle"><input id="showIgnored" type="checkbox" /> <span class="muted">Mostrar ignorados</span></label>
+          <label class="muted chk">
+            <input id="showIgnored" type="checkbox" />
+            Mostrar ignorados
+          </label>
           <button id="warningsClose" type="button">Cerrar</button>
         </div>
       </div>
-      <div class="modal-body">
-        <div id="warningsList"></div>
-      </div>
+      <div class="modal-body" id="warningsList"></div>
     </div>
   </div>
 
-  <div class="modal-backdrop" id="courseModal">
-    <div class="modal" role="dialog" aria-modal="true" aria-label="Crear curso (borrador)">
-      <div class="modal-h">
-        <div class="modal-title">Crear curso (borrador)</div>
-        <div class="modal-controls">
-          <button id="courseClose" type="button">Cerrar</button>
-        </div>
-      </div>
-      <div class="modal-body">
-        <div class="form">
-          <label class="field">
-            <span class="lbl">Sigla</span>
-            <input id="cSigla" type="text" placeholder="Ej: MAT1610" autocomplete="off" />
-          </label>
-
-          <label class="field">
-            <span class="lbl">Nombre</span>
-            <input id="cNombre" type="text" placeholder="Nombre del curso" />
-          </label>
-
-          <label class="field">
-            <span class="lbl">Créditos</span>
-            <input id="cCreditos" type="number" min="0" step="1" placeholder="0" />
-          </label>
-
-          <label class="field">
-            <span class="lbl">Prerrequisitos</span>
-            <input id="cPrereq" type="text" placeholder="Si no tiene, dejar vacío" autocomplete="off" />
-            <div class="suggest" id="cPrereqSuggest" aria-label="Sugerencias prerrequisitos"></div>
-          </label>
-
-          <label class="field">
-            <span class="lbl">Correquisitos</span>
-            <input id="cCoreq" type="text" placeholder="Si no tiene, dejar vacío" autocomplete="off" />
-            <div class="suggest" id="cCoreqSuggest" aria-label="Sugerencias correquisitos"></div>
-          </label>
-
-          <div class="field">
-            <span class="lbl">Semestres ofrecido</span>
-            <div class="chips" role="group" aria-label="Semestres ofrecido">
-              <label class="chip"><input id="cOffV" type="checkbox" value="V" /> V</label>
-              <label class="chip"><input id="cOffI" type="checkbox" value="I" /> I</label>
-              <label class="chip"><input id="cOffP" type="checkbox" value="P" /> P</label>
-            </div>
-          </div>
-
-          <label class="field">
-            <span class="lbl">Concentración</span>
-            <select id="cConc">
-              <option value="MScB">MScB</option>
-              <option value="M">M</option>
-              <option value="m">m</option>
-              <option value="FI">FI</option>
-              <option value="OFG">OFG</option>
-              <option value="ex">ex</option>
-            </select>
-          </label>
-
-          <div class="form-actions">
-            <button id="courseCreate" type="button">Crear</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="grid-wrap">
-    <div class="grid" id="grid"></div>
-  </div>
+  <div class="grid-wrap"><div class="grid" id="grid"></div></div>
 
   <details>
     <summary class="muted">Debug (payload)</summary>
@@ -134,4 +67,3 @@
   <script src="/app.js"></script>
 </body>
 </html>
-

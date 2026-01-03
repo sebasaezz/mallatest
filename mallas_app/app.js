@@ -8,20 +8,14 @@ let CONFIG=null, ALL=null, DRAFT=null;
 let draftMode=false, dirtyDraft=false;
 let ADD_TERM_TOUCHED=false; // si el usuario tocó addYear/addSem, no auto-sobrescribir
 
-// Modal crear curso (draft)
-let COURSE_MODAL_TERM_ID=null;
-let _courseSuggestWired=false;
-
 const $ = (id) => document.getElementById(id);
 const on = (id, ev, fn) => $(id)?.addEventListener(ev, fn);
 
 // ---------- debug (colors/categories) ----------
 // Actívalo abriendo la app con:  http://localhost:PORT/?debugColors=1
 const DEBUG_COLORS = new URLSearchParams(location.search).has("debugColors");
-const DEBUG_WARN = new URLSearchParams(location.search).has("debugWarn");
 const DEBUG_LOG_LIMIT = 12;
 let _dbgLogged = false;
-let _dbgWarnSeq = 0;
 
 // ---------- theme (optional dark mode) ----------
 const setTheme = (theme) => {
@@ -195,10 +189,6 @@ async function loadAll() {
   if (mc) mc.textContent = CONFIG?.max_credits ?? "";
   $("debugPre").textContent = JSON.stringify(ALL, null, 2);
 
-  // compat: asegurar estructura de cursos temporales (solo draft)
-  DRAFT = DRAFT || {};
-  DRAFT.temp_courses = Array.isArray(DRAFT.temp_courses) ? DRAFT.temp_courses : [];
-
   dirtyDraft = false;
   ADD_TERM_TOUCHED = false;
   updateDraftButtons();
@@ -357,12 +347,6 @@ function computeWarnings(terms, courses, placements, draft) {
   const warnings = [];
   const ignored = (draft && typeof draft.ignored_warnings === "object") ? draft.ignored_warnings : {};
 
-  const isTemp = (cid) => String(cid || "").startsWith("draft:");
-  let dbgTempLeft = DEBUG_WARN ? 5 : 0;
-  if (DEBUG_WARN) {
-    console.groupCollapsed("[DBG warn] computeWarnings", { terms: terms?.length || 0, courses: courses?.length || 0 });
-  }
-
   const termPos = new Map(terms.map((t, i) => [t.term_id, i]));
   const courseBySigla = new Map();
 
@@ -397,18 +381,6 @@ function computeWarnings(terms, courses, placements, draft) {
   for (const c of (courses || [])) {
     const tid = placements.get(c.course_id) || c.term_id;
     const tpos = termPos.has(tid) ? termPos.get(tid) : 999999;
-
-    if (DEBUG_WARN && dbgTempLeft > 0 && isTemp(c?.course_id)) {
-      dbgTempLeft--;
-      console.log("[DBG warn] temp course fields", {
-        sigla: c?.sigla, course_id: c?.course_id, tid,
-        prerrequisitos: c?.prerrequisitos,
-        fm_prerrequisitos: c?.frontmatter?.prerrequisitos,
-        semestreOfrecido: c?.semestreOfrecido,
-        fm_semestreOfrecido: c?.frontmatter?.semestreOfrecido,
-        normalized: normalizePrereqs(c?.prerrequisitos),
-      });
-    }
 
     for (const pr of normalizePrereqs(c.prerrequisitos)) {
       const reqCode = pr.code;
@@ -451,177 +423,7 @@ function computeWarnings(terms, courses, placements, draft) {
   }
 
   for (const w of warnings) w.ignored = !!ignored[w.id];
-
-  if (DEBUG_WARN) {
-    const tempW = warnings.filter(w => isTemp(w.course_id));
-    console.log("[DBG warn] warnings for temp courses", tempW.length, tempW.slice(0, 12));
-    console.groupEnd();
-  }
   return warnings;
-}
-
-// ---------- course modal (draft: temp courses) ----------
-const siglaNorm = (x) => String(x || "").trim().toUpperCase();
-const parseCodes = (str) => String(str || "")
-  .split(/[,\s]+/)
-  .map(s => siglaNorm(s))
-  .filter(Boolean);
-
-function getSiglaSet() {
-  const set = new Set();
-  for (const c of (ALL?.courses || [])) { const s = siglaNorm(c?.sigla); if (s) set.add(s); }
-  for (const c of (DRAFT?.temp_courses || [])) { const s = siglaNorm(c?.sigla); if (s) set.add(s); }
-  return set;
-}
-function getSiglaOptions() { return Array.from(getSiglaSet()).sort(); }
-
-function replaceLastToken(s0, token) {
-  const s = String(s0 || "");
-  const i = s.lastIndexOf(",");
-  const head = (i >= 0) ? s.slice(0, i + 1) : "";
-  return head + (head ? " " : "") + token + ", ";
-}
-
-function wireSuggest(inputEl, menuEl, optionsFn) {
-  if (!inputEl || !menuEl) return;
-  const close = () => { menuEl.classList.remove("show"); menuEl.innerHTML = ""; };
-  const show = (items) => {
-    menuEl.innerHTML = "";
-    if (!items.length) return close();
-    for (const v of items) {
-      const it = mk("div", "item", v);
-      it.addEventListener("mousedown", (ev) => {
-        ev.preventDefault();
-        inputEl.value = replaceLastToken(inputEl.value, v);
-        close();
-        try { inputEl.focus(); } catch {}
-      });
-      menuEl.appendChild(it);
-    }
-    menuEl.classList.add("show");
-  };
-
-  const update = () => {
-    const tok = siglaNorm(String(inputEl.value || "").split(",").slice(-1)[0]);
-    if (!tok) return close();
-    const opts = (optionsFn ? optionsFn() : []).filter(s => s.startsWith(tok)).slice(0, 12);
-    show(opts);
-  };
-
-  inputEl.addEventListener("input", update);
-  inputEl.addEventListener("keydown", (ev) => { if (ev.key === "Escape") close(); });
-  inputEl.addEventListener("blur", () => setTimeout(close, 120));
-}
-
-function wireCourseSuggestOnce() {
-  if (_courseSuggestWired) return;
-  wireSuggest($("cPrereq"), $("cPrereqSuggest"), getSiglaOptions);
-  wireSuggest($("cCoreq"), $("cCoreqSuggest"), getSiglaOptions);
-  _courseSuggestWired = true;
-}
-
-function openCourseModal(termId) {
-  if (!draftMode) return;
-  const el = $("courseModal");
-  if (!el) return;
-  COURSE_MODAL_TERM_ID = String(termId || "").trim() || null;
-
-  const set = (id, v) => { const x = $(id); if (x) x.value = v; };
-  set("cSigla", "");
-  set("cNombre", "");
-  set("cCreditos", "");
-  set("cPrereq", "");
-  set("cCoreq", "");
-  const v = $("cOffV"), i = $("cOffI"), p = $("cOffP");
-  if (v) v.checked = false;
-  if (i) i.checked = false;
-  if (p) p.checked = false;
-  const conc = $("cConc");
-  if (conc) conc.value = "ex";
-
-  $("cPrereqSuggest")?.classList.remove("show");
-  $("cCoreqSuggest")?.classList.remove("show");
-  $("cPrereqSuggest") && ($("cPrereqSuggest").innerHTML = "");
-  $("cCoreqSuggest") && ($("cCoreqSuggest").innerHTML = "");
-
-  wireCourseSuggestOnce();
-  el.style.display = "flex";
-  setTimeout(() => { try { $("cSigla")?.focus(); } catch {} }, 0);
-}
-
-function closeCourseModal() {
-  const el = $("courseModal");
-  if (el) el.style.display = "none";
-  COURSE_MODAL_TERM_ID = null;
-}
-
-function createTempCourseFromModal() {
-  if (!draftMode) return showNotice("hard", "Activa modo borrador para crear cursos.");
-  if (!DRAFT) return;
-
-  const sigla = siglaNorm($("cSigla")?.value);
-  if (!sigla) return showNotice("hard", "Sigla requerida.");
-
-  const existing = getSiglaSet();
-  if (existing.has(sigla)) return showNotice("hard", `La sigla ${sigla} ya existe.`);
-
-  const cred0 = String($("cCreditos")?.value || "").trim();
-  const creditos = parseInt(cred0 || "0", 10);
-  if (!Number.isFinite(creditos) || creditos < 0) return showNotice("hard", "Créditos inválidos.");
-
-  const nombre = String($("cNombre")?.value || "").trim();
-  const pre = parseCodes($("cPrereq")?.value);
-  const co = parseCodes($("cCoreq")?.value);
-
-  const unknown = [];
-  for (const code of [...pre, ...co]) if (!existing.has(code)) unknown.push(code);
-
-  const req = [];
-  for (const code of pre) req.push(code);
-  for (const code of co) req.push(`${code}(c)`);
-  const prerrequisitos = req.length ? req : ["nt"];
-
-  const semestreOfrecido = [];
-  if ($("cOffV")?.checked) semestreOfrecido.push("V");
-  if ($("cOffI")?.checked) semestreOfrecido.push("I");
-  if ($("cOffP")?.checked) semestreOfrecido.push("P");
-
-  const concentracion = $("cConc")?.value || "ex";
-
-  let term_id = COURSE_MODAL_TERM_ID;
-  if (!term_id) {
-    let best = null, bestIdx = -1;
-    for (const t of (ALL?.terms || [])) {
-      const idx = termIndex(t?.term_id);
-      if (idx !== 999999 && idx > bestIdx) { bestIdx = idx; best = t.term_id; }
-    }
-    term_id = best || null;
-  }
-
-  const course_id = `draft:${sigla}`;
-  const c = {
-    course_id, term_id,
-    sigla, nombre,
-    creditos,
-    concentracion,
-    prerrequisitos,
-    semestreOfrecido,
-    aprobado: false,
-    frontmatter: {},
-  };
-
-  DRAFT.temp_courses = Array.isArray(DRAFT.temp_courses) ? DRAFT.temp_courses : [];
-  DRAFT.temp_courses.push(c);
-
-  DRAFT.placements = DRAFT.placements || {};
-  if (term_id) DRAFT.placements[course_id] = term_id;
-
-  dirtyDraft = true;
-  updateDraftButtons();
-  closeCourseModal();
-  fullRender();
-
-  if (unknown.length) showNotice("soft", `Requisito(s) no existe(n): ${unknown.join(", ")} (se creó igual).`);
 }
 
 // ---------- render ----------
@@ -787,7 +589,7 @@ function render(terms, courses, placements, warnings) {
       add.title = `Agregar curso en ${t.term_id}`;
       add.dataset.termId = t.term_id;
       add.draggable = false;
-      add.addEventListener("click", (ev) => { ev.stopPropagation(); openCourseModal(t.term_id); });
+      add.addEventListener("click", (ev) => { ev.stopPropagation(); });
       list.appendChild(add);
     }
 
@@ -871,29 +673,11 @@ const closeWarningsModal = () => { const el = $("warningsModal"); if (el) el.sty
 function fullRender() {
   if (!ALL || !CONFIG || !DRAFT) return;
 
-  const temp = Array.isArray(DRAFT.temp_courses) ? DRAFT.temp_courses : [];
-  const coursesEff = [...(ALL.courses || []), ...temp];
+  const { terms, placements } = buildEffectiveTermsAndPlacements(ALL.terms, ALL.courses, DRAFT);
+  Unlock.buildAdj(ALL.courses);
+  setAddTermDefaultIfUntouched(terms, ALL.courses, placements);
 
-  if (DEBUG_WARN) {
-    const n = ++_dbgWarnSeq;
-    const samp = (temp || []).slice(0, 5).map(c => ({
-      sigla: c?.sigla, course_id: c?.course_id, term_id: c?.term_id,
-      prerrequisitos: c?.prerrequisitos,
-      fm_prerrequisitos: c?.frontmatter?.prerrequisitos,
-      semestreOfrecido: c?.semestreOfrecido,
-      fm_semestreOfrecido: c?.frontmatter?.semestreOfrecido,
-    }));
-    console.groupCollapsed(`[DBG warn] fullRender #${n} (draftMode=${draftMode})`);
-    console.log("temp_courses", temp?.length || 0, "coursesEff", coursesEff.length);
-    if (samp.length) console.table(samp);
-    console.groupEnd();
-  }
-
-  const { terms, placements } = buildEffectiveTermsAndPlacements(ALL.terms, coursesEff, DRAFT);
-  Unlock.buildAdj(coursesEff);
-  setAddTermDefaultIfUntouched(terms, coursesEff, placements);
-
-  const warnings = computeWarnings(terms, coursesEff, placements, DRAFT);
+  const warnings = computeWarnings(terms, ALL.courses, placements, DRAFT);
 
   // show first (non-ignored) hard, else soft (banner)
   const showIgnored = !!$("showIgnored")?.checked;
@@ -905,7 +689,7 @@ function fullRender() {
   else if (firstSoft) showNotice("soft", firstSoft.text);
   else hideNotice();
 
-  render(terms, coursesEff, placements, warnings);
+  render(terms, ALL.courses, placements, warnings);
 }
 
 async function saveDraftToServer() {
@@ -921,8 +705,6 @@ async function saveDraftToServer() {
 
 async function resetDraftFromServer() {
   DRAFT = await fetchJSON("/api/draft");
-  DRAFT = DRAFT || {};
-  DRAFT.temp_courses = Array.isArray(DRAFT.temp_courses) ? DRAFT.temp_courses : [];
   ADD_TERM_TOUCHED = false;
   dirtyDraft = false;
   updateDraftButtons();
@@ -981,11 +763,6 @@ function initHandlers() {
   on("filter", "input", fullRender);
   on("warningsBtn", "click", openWarningsModal);
   on("warningsClose", "click", closeWarningsModal);
-
-  // Modal crear curso (draft)
-  on("courseClose", "click", closeCourseModal);
-  on("courseCreate", "click", (ev) => { try { ev.preventDefault(); } catch {} createTempCourseFromModal(); });
-  on("courseModal", "click", (ev) => { if (ev.target === $("courseModal")) closeCourseModal(); });
 
   on("warningsModal", "click", (ev) => {
     if (ev.target === $("warningsModal")) closeWarningsModal();
