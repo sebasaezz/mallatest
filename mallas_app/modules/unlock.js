@@ -26,6 +26,11 @@ let _active = []; // elements currently blinking
 let _selId = null;
 let _selEl = null;
 
+// Optional hook: when user clicks the *selected* course again, open course menu.
+// This keeps unlock behavior on first click, but enables a second-click menu without
+// forcing draftMode logic into this module.
+let _onSecondClick = null;
+
 let _lastCoursesRef = null;
 
 function normSigla(x) {
@@ -238,13 +243,24 @@ export function setUnlockEnabled(on) {
 
 /**
  * Initialize unlock module.
- * @param {{ gridId?: string, enabled?: boolean }} opts
+ * @param {{ gridId?: string, enabled?: boolean, onSecondClick?: (courseId: string, courseEl: HTMLElement) => void }} opts
  */
 export function initUnlock(opts = {}) {
-  if (_installed) return;
+  // Allow calling initUnlock multiple times to update options (common after modular reloads).
+  // First call installs listeners; subsequent calls only update flags/callbacks.
+  if (_installed) {
+    if ("enabled" in opts) _enabled = !!opts.enabled;
+    if ("onSecondClick" in opts) {
+      _onSecondClick = typeof opts.onSecondClick === "function" ? opts.onSecondClick : null;
+    }
+    scheduleRefresh();
+    return;
+  }
+
   _installed = true;
 
   _enabled = opts.enabled !== undefined ? !!opts.enabled : true;
+  _onSecondClick = typeof opts.onSecondClick === "function" ? opts.onSecondClick : null;
   const gridId = opts.gridId || "grid";
   _gridEl = document.getElementById(gridId);
 
@@ -252,7 +268,11 @@ export function initUnlock(opts = {}) {
   maybeRebuildAdj();
 
   if (_gridEl) {
-    // Click behavior: course toggles; outside clears.
+    // Click behavior:
+    // - Click a course: select + blink unlock chain.
+    // - Click outside: clear selection.
+    // - If opts.onSecondClick is provided: clicking the *selected* course again calls it
+    //   (menu) instead of clearing; user can still clear by clicking outside.
     _gridEl.addEventListener("click", (ev) => {
       if (!_enabled) return;
       const courseEl = findCourseEl(ev.target);
@@ -261,8 +281,20 @@ export function initUnlock(opts = {}) {
         return;
       }
       ev.stopPropagation();
-      const cid = courseIdFromEl(courseEl);
-      if (cid) toggleUnlock(cid);
+      const cidRaw = courseIdFromEl(courseEl);
+      if (!cidRaw) return;
+      const cid = String(cidRaw);
+
+      if (_onSecondClick && _selId === cid) {
+        try {
+          _onSecondClick(cid, courseEl);
+        } catch (e) {
+          console.warn("[unlock] onSecondClick failed", e);
+        }
+        return;
+      }
+
+      toggleUnlock(cid);
     });
 
     // Observe DOM changes to reapply selection/blink after renders.
