@@ -5,6 +5,7 @@
 // - Unlock view: click en curso -> resalta + parpadea lo que desbloquea
 
 import { byId } from "./modules/utils.js";
+import { showNotice, hideNotice } from "./modules/toasts.js";
 
 let CONFIG=null, ALL=null, DRAFT=null;
 let draftMode=false, dirtyDraft=false;
@@ -144,30 +145,16 @@ const mk = (tag, cls, text) => {
 };
 const append = (p, ...kids) => { for (const k of kids) if (k) p.appendChild(k); return p; };
 
-let NOTICE_TO=null, NOTICE_FADE_TO=null;
-function showNotice(kind, text) {
-  const el = $("notice"), tx = $("noticeText");
-  if (!el || !tx) return;
-  if (NOTICE_TO) clearTimeout(NOTICE_TO);
-  if (NOTICE_FADE_TO) clearTimeout(NOTICE_FADE_TO);
-  el.classList.remove("soft", "hard", "info", "fading");
-  el.classList.add(kind);
-  tx.textContent = text;
-  el.style.display = "flex";
-  NOTICE_TO = setTimeout(() => {
-    el.classList.add("fading");
-    NOTICE_FADE_TO = setTimeout(hideNotice, 300);
-  }, 5000);
+let WARN_NOTICE_ID = null;
+function setWarnNotice(kind, text) {
+  try { if (WARN_NOTICE_ID) hideNotice(WARN_NOTICE_ID); } catch {}
+  WARN_NOTICE_ID = showNotice(kind, text);
 }
-function hideNotice(){
-  const el = $("notice");
-  if (NOTICE_TO) clearTimeout(NOTICE_TO);
-  if (NOTICE_FADE_TO) clearTimeout(NOTICE_FADE_TO);
-  NOTICE_TO = NOTICE_FADE_TO = null;
-  if (!el) return;
-  el.classList.remove("fading");
-  el.style.display = "none";
+function clearWarnNotice(){
+  try { if (WARN_NOTICE_ID) hideNotice(WARN_NOTICE_ID); } catch {}
+  WARN_NOTICE_ID = null;
 }
+
 
 async function fetchJSON(url, opts) {
   const res = await fetch(url, opts);
@@ -687,9 +674,9 @@ function fullRender() {
   const firstHard = visibleWarnings.find(w => w.kind === "hard");
   const firstSoft = visibleWarnings.find(w => w.kind === "soft");
 
-  if (firstHard) showNotice("hard", firstHard.text);
-  else if (firstSoft) showNotice("soft", firstSoft.text);
-  else hideNotice();
+  if (firstHard) setWarnNotice("hard", firstHard.text);
+  else if (firstSoft) setWarnNotice("soft", firstSoft.text);
+  else clearWarnNotice();
 
   render(terms, ALL.courses, placements, warnings);
 }
@@ -727,7 +714,7 @@ const parseSemValue = (raw) => {
 };
 
 function initHandlers() {
-  on("noticeClose", "click", hideNotice);
+  on("noticeClose", "click", clearWarnNotice);
 
   on("reloadBtn", "click", async () => {
     try {
