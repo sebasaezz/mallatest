@@ -600,19 +600,22 @@ const parseSemValue = (raw) => {
 // - First click selects (unlock)
 // - Second click on the same course opens the course menu (dummy)
 let _armedCourseMenuId = null;
-const _getCourseIdFromTarget = (t) => {
+const _getCourseElFromTarget = (t) => {
   const el = t?.closest?.(".course");
   if (!el) return null;
   if (el.classList.contains("course-add")) return null;
+  return el;
+};
+const _getCourseIdFromEl = (el) => {
   return (
-    el.dataset?.courseId ||
-    el.dataset?.course_id ||
-    el.getAttribute?.("data-course-id") ||
-    el.getAttribute?.("data-courseid") ||
+    el?.dataset?.courseId ||
+    el?.dataset?.course_id ||
+    el?.getAttribute?.("data-course-id") ||
+    el?.getAttribute?.("data-courseid") ||
     null
   );
 };
-const _openMenuForCourseId = (courseId) => {
+const _openMenuForCourseId = (courseId, sourceEl = null) => {
   const cid = String(courseId || "").trim();
   if (!cid) return;
   const course =
@@ -622,7 +625,7 @@ const _openMenuForCourseId = (courseId) => {
     showNotice("soft", `No se encontró el curso para abrir menú: ${cid}.`);
     return;
   }
-  openCourseMenu({ course, isDraftMode: !!state.draftMode });
+  openCourseMenu({ course, isDraftMode: !!state.draftMode, sourceEl: sourceEl || undefined });
 };
 
 function initHandlers() {
@@ -651,13 +654,14 @@ function initHandlers() {
       }
 
       // second-click course menu (always opens)
-      const cid = _getCourseIdFromTarget(ev.target);
+      const courseEl = _getCourseElFromTarget(ev.target);
+      const cid = courseEl ? _getCourseIdFromEl(courseEl) : null;
       if (cid) {
         const id = String(cid);
         if (_armedCourseMenuId === id) {
           ev.preventDefault();
           ev.stopPropagation();
-          _openMenuForCourseId(id);
+          _openMenuForCourseId(id, courseEl);
           // keep it armed so repeated clicks keep opening the menu until user clicks elsewhere
           return;
         }
@@ -789,10 +793,10 @@ async function main() {
     initUnlock({
       gridId: "grid",
       enabled: true,
-      onSecondClick: (courseId) => {
+      onSecondClick: (courseId, courseEl) => {
         // Keep unlock.js callback too, but primary behavior is implemented in app.js capture handler.
         // This is a safety net in case event propagation changes.
-        _openMenuForCourseId(courseId);
+        _openMenuForCourseId(courseId, courseEl);
       },
     });
 
