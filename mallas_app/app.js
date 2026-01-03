@@ -8,6 +8,7 @@ import { byId } from "./modules/utils.js";
 import { showNotice, hideNotice } from "./modules/toasts.js";
 import { getConfig, getAll, getDraft, saveDraft } from "./modules/api.js";
 import { state, setData, rebuildMaps } from "./modules/state.js";
+import { computeWarnings, setLegacyComputeWarnings } from "./modules/warnings.js";
 
 // State moved to modules/state.js (kept as a single shared object).
 let ADD_TERM_TOUCHED=false; // si el usuario tocó addYear/addSem, no auto-sobrescribir
@@ -409,9 +410,9 @@ function computeWarningsLocal(terms, courses, placements, draft, config) {
   return warnings;
 }
 
-// computeWarningsLocal is the current canonical behavior (legacy).
-// Next step: move it into modules/warnings.js verbatim, then delete it from app.js.
-const computeWarnings = computeWarningsLocal;
+// Wire legacy warning logic into the module so we can delete this block later.
+setLegacyComputeWarnings(computeWarningsLocal);
+
 
 // ---------- render ----------
 function render(terms, courses, placements, warnings) {
