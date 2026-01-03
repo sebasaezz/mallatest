@@ -7,9 +7,9 @@
 import { byId } from "./modules/utils.js";
 import { showNotice, hideNotice } from "./modules/toasts.js";
 import { getConfig, getAll, getDraft, saveDraft } from "./modules/api.js";
+import { state, setData, rebuildMaps } from "./modules/state.js";
 
-let CONFIG=null, ALL=null, DRAFT=null;
-let draftMode=false, dirtyDraft=false;
+// State moved to modules/state.js (kept as a single shared object).
 let ADD_TERM_TOUCHED=false; // si el usuario tocó addYear/addSem, no auto-sobrescribir
 
 const $ = byId;
@@ -158,28 +158,30 @@ function clearWarnNotice(){
 
 
 async function loadAll() {
-  [CONFIG, ALL, DRAFT] = await Promise.all([
+  const [config, all, draft] = await Promise.all([
     getConfig(),
     getAll(),
     getDraft(),
   ]);
+  setData({ config, all, draft });
+  rebuildMaps();
 
-  $("ver").textContent = ALL?.version || "";
-  $("base").textContent = ALL?.debug?.base_dir || "";
+  $("ver").textContent = state.all?.version || "";
+  $("base").textContent = state.all?.debug?.base_dir || "";
   const mc = $("maxCred");
-  if (mc) mc.textContent = CONFIG?.max_credits ?? "";
-  $("debugPre").textContent = JSON.stringify(ALL, null, 2);
+  if (mc) mc.textContent = state.config?.max_credits ?? "";
+  $("debugPre").textContent = JSON.stringify(state.all, null, 2);
 
-  dirtyDraft = false;
+  state.dirtyDraft = false;
   ADD_TERM_TOUCHED = false;
   updateDraftButtons();
 }
 
 function updateDraftButtons() {
   const saveBtn = $("saveBtn"), resetBtn = $("resetBtn"), addBtn = $("addTermBtn");
-  if (saveBtn) saveBtn.disabled = !draftMode || !dirtyDraft;
-  if (resetBtn) resetBtn.disabled = !draftMode;
-  if (addBtn) addBtn.disabled = !draftMode;
+  if (saveBtn) saveBtn.disabled = !state.draftMode || !state.dirtyDraft;
+  if (resetBtn) resetBtn.disabled = !state.draftMode;
+  if (addBtn) addBtn.disabled = !state.draftMode;
 }
 
 // ---------- prereqs parsing ----------
@@ -281,7 +283,7 @@ function buildEffectiveTermsAndPlacements(allTerms, allCourses, draft) {
   const termsById = new Map();
   for (const t of (allTerms || [])) termsById.set(t.term_id, { ...t });
 
-  const termCode = (sem) => (CONFIG?.term_code_by_sem && (CONFIG.term_code_by_sem[String(sem)] || CONFIG.term_code_by_sem[sem])) || "?";
+  const termCode = (sem) => (state.config?.term_code_by_sem && (state.config.term_code_by_sem[String(sem)] || state.config.term_code_by_sem[sem])) || "?";
   const ensureTerm = (tid) => {
     if (!tid || termsById.has(tid)) return;
     const p = termParts(tid) || { year: 0, sem: 0 };
@@ -337,8 +339,8 @@ function computeWarnings(terms, courses, placements, draft) {
   }
 
   // Credit warnings per term
-  const maxC = CONFIG?.max_credits ?? 65;
-  const softC = CONFIG?.soft_credits ?? 50;
+  const maxC = state.config?.max_credits ?? 65;
+  const softC = state.config?.soft_credits ?? 50;
 
   const creditsByTerm = new Map();
   for (const c of (courses || [])) {
@@ -467,15 +469,15 @@ function render(terms, courses, placements, warnings) {
     title.innerHTML = `<div class="term-title">${t.term_id}</div><div class="term-sub">${t.code}</div>`;
 
     const total = creditsByTerm.get(t.term_id) || 0;
-    const maxC = CONFIG?.max_credits ?? 65;
-    const softC = CONFIG?.soft_credits ?? 50;
+    const maxC = state.config?.max_credits ?? 65;
+    const softC = state.config?.soft_credits ?? 50;
     const cred = mk("div", "term-credits", `${total} cr`);
     if (total > maxC) cred.classList.add("bad");
     else if (total > softC) cred.classList.add("warn");
 
     append(th, title, cred);
 
-    if (draftMode && t.isCustom && !(byTerm.get(t.term_id) || []).length) {
+    if (state.draftMode && t.isCustom && !(byTerm.get(t.term_id) || []).length) {
       const del = mk("button", "term-del", "✕");
       del.type = "button";
       del.title = "Eliminar período vacío";
@@ -483,12 +485,12 @@ function render(terms, courses, placements, warnings) {
         ev.stopPropagation();
         if (!confirm(`¿Eliminar el período vacío ${t.term_id}?`)) return;
         const tid = t.term_id;
-        DRAFT.custom_terms = (Array.isArray(DRAFT.custom_terms) ? DRAFT.custom_terms : []).filter(x => String(x?.term_id || "") !== tid);
-        DRAFT.term_order = (Array.isArray(DRAFT.term_order) ? DRAFT.term_order : []).filter(x => String(x || "") !== tid);
-        if (DRAFT.placements && typeof DRAFT.placements === "object") {
-          for (const [cid, pt] of Object.entries(DRAFT.placements)) if (String(pt) === tid) delete DRAFT.placements[cid];
+        state.draft.custom_terms = (Array.isArray(state.draft.custom_terms) ? state.draft.custom_terms : []).filter(x => String(x?.term_id || "") !== tid);
+        state.draft.term_order = (Array.isArray(state.draft.term_order) ? state.draft.term_order : []).filter(x => String(x || "") !== tid);
+        if (state.draft.placements && typeof state.draft.placements === "object") {
+          for (const [cid, pt] of Object.entries(state.draft.placements)) if (String(pt) === tid) delete state.draft.placements[cid];
         }
-        dirtyDraft = true;
+        state.dirtyDraft = true;
         updateDraftButtons();
         fullRender();
         showNotice("info", `Período eliminado: ${tid}.`);
@@ -513,7 +515,7 @@ function render(terms, courses, placements, warnings) {
       const cat = getCatInfo(c);
       if (cat?.cls) card.classList.add(cat.cls);
 
-      card.draggable = !!draftMode;
+      card.draggable = !!state.draftMode;
       card.dataset.courseId = c.course_id;
 
       // unlock click
@@ -544,7 +546,7 @@ function render(terms, courses, placements, warnings) {
         })() : null,
       );
 
-      if (draftMode) {
+      if (state.draftMode) {
         card.addEventListener("dragstart", (ev) => {
           ev.dataTransfer.setData("text/plain", c.course_id);
           ev.dataTransfer.effectAllowed = "move";
@@ -563,8 +565,8 @@ function render(terms, courses, placements, warnings) {
       }
     }
 
-    // "+" (solo draftMode): botón visual al final del período
-    if (draftMode) {
+    // "+" (solo state.draftMode): botón visual al final del período
+    if (state.draftMode) {
       const add = mk("button", "course course-add", "+");
       add.type = "button";
       add.title = `Agregar curso en ${t.term_id}`;
@@ -574,7 +576,7 @@ function render(terms, courses, placements, warnings) {
       list.appendChild(add);
     }
 
-    if (draftMode) {
+    if (state.draftMode) {
       list.addEventListener("dragover", (ev) => {
         ev.preventDefault();
         list.classList.add("dragover");
@@ -587,9 +589,9 @@ function render(terms, courses, placements, warnings) {
         const cid = ev.dataTransfer.getData("text/plain");
         const tid = list.dataset.termId;
         if (!cid || !tid) return;
-        DRAFT.placements = DRAFT.placements || {};
-        DRAFT.placements[cid] = tid;
-        dirtyDraft = true;
+        state.draft.placements = state.draft.placements || {};
+        state.draft.placements[cid] = tid;
+        state.dirtyDraft = true;
         updateDraftButtons();
         fullRender();
       });
@@ -634,10 +636,10 @@ function renderWarningsModal(activeWarnings) {
     const btn = mk("button", null, w.ignored ? "Des-ignorar" : "Ignorar");
     btn.type = "button";
     btn.addEventListener("click", () => {
-      DRAFT.ignored_warnings = DRAFT.ignored_warnings || {};
-      if (w.ignored) delete DRAFT.ignored_warnings[w.id];
-      else DRAFT.ignored_warnings[w.id] = true;
-      dirtyDraft = true;
+      state.draft.ignored_warnings = state.draft.ignored_warnings || {};
+      if (w.ignored) delete state.draft.ignored_warnings[w.id];
+      else state.draft.ignored_warnings[w.id] = true;
+      state.dirtyDraft = true;
       updateDraftButtons();
       fullRender();
     });
@@ -652,13 +654,13 @@ const openWarningsModal = () => { const el = $("warningsModal"); if (el) el.styl
 const closeWarningsModal = () => { const el = $("warningsModal"); if (el) el.style.display = "none"; };
 
 function fullRender() {
-  if (!ALL || !CONFIG || !DRAFT) return;
+  if (!state.all || !state.config || !state.draft) return;
 
-  const { terms, placements } = buildEffectiveTermsAndPlacements(ALL.terms, ALL.courses, DRAFT);
-  Unlock.buildAdj(ALL.courses);
-  setAddTermDefaultIfUntouched(terms, ALL.courses, placements);
+  const { terms, placements } = buildEffectiveTermsAndPlacements(state.all.terms, state.all.courses, state.draft);
+  Unlock.buildAdj(state.all.courses);
+  setAddTermDefaultIfUntouched(terms, state.all.courses, placements);
 
-  const warnings = computeWarnings(terms, ALL.courses, placements, DRAFT);
+  const warnings = computeWarnings(terms, state.all.courses, placements, state.draft);
 
   // show first (non-ignored) hard, else soft (banner)
   const showIgnored = !!$("showIgnored")?.checked;
@@ -670,20 +672,20 @@ function fullRender() {
   else if (firstSoft) setWarnNotice("soft", firstSoft.text);
   else clearWarnNotice();
 
-  render(terms, ALL.courses, placements, warnings);
+  render(terms, state.all.courses, placements, warnings);
 }
 
 async function saveDraftToServer() {
-  await saveDraft(DRAFT || {});
-  dirtyDraft = false;
+  await saveDraft(state.draft || {});
+  state.dirtyDraft = false;
   updateDraftButtons();
   showNotice("info", "Borrador guardado.");
 }
 
 async function resetDraftFromServer() {
-  DRAFT = await getDraft();
+  state.draft = await getDraft();
   ADD_TERM_TOUCHED = false;
-  dirtyDraft = false;
+  state.dirtyDraft = false;
   updateDraftButtons();
   fullRender();
   showNotice("info", "Borrador reseteado (se recargó desde disco)." );
@@ -728,13 +730,13 @@ function initHandlers() {
   on("themeToggle", "change", () => saveTheme($("themeToggle")?.checked ? "dark" : "light"));
 
   on("draftToggle", "change", () => {
-    draftMode = !!$("draftToggle")?.checked;
+    state.draftMode = !!$("draftToggle")?.checked;
     updateDraftButtons();
     fullRender();
   });
 
   // Sync inicial: si el checkbox viene marcado al cargar (estado persistido por el browser)
-  draftMode = !!$("draftToggle")?.checked;
+  state.draftMode = !!$("draftToggle")?.checked;
   updateDraftButtons();
 
   on("filter", "input", fullRender);
@@ -755,7 +757,7 @@ function initHandlers() {
 
   on("addTermBtn", "click", (ev) => {
     try { ev.preventDefault(); } catch {}
-    if (!draftMode) return;
+    if (!state.draftMode) return;
 
     const y = parseInt($("addYear")?.value || "0", 10);
     const s = parseSemValue($("addSem")?.value);
@@ -764,11 +766,11 @@ function initHandlers() {
     if (![0,1,2].includes(s)) return showNotice("hard", "Sem inválido (V/I/P o 0/1/2)." );
 
     const tid = `${y}-${s}`;
-    DRAFT.custom_terms = Array.isArray(DRAFT.custom_terms) ? DRAFT.custom_terms : [];
-    if (!DRAFT.custom_terms.some(t => t && t.term_id === tid)) DRAFT.custom_terms.push({ term_id: tid });
+    state.draft.custom_terms = Array.isArray(state.draft.custom_terms) ? state.draft.custom_terms : [];
+    if (!state.draft.custom_terms.some(t => t && t.term_id === tid)) state.draft.custom_terms.push({ term_id: tid });
 
-    DRAFT.term_order = Array.isArray(DRAFT.term_order) ? DRAFT.term_order : [];
-    if (!DRAFT.term_order.includes(tid)) DRAFT.term_order.push(tid);
+    state.draft.term_order = Array.isArray(state.draft.term_order) ? state.draft.term_order : [];
+    if (!state.draft.term_order.includes(tid)) state.draft.term_order.push(tid);
 
     // Auto-avanzar selector a siguiente período NO-verano
     const base = termParts(tid);
@@ -780,7 +782,7 @@ function initHandlers() {
       ADD_TERM_TOUCHED = true;
     }
 
-    dirtyDraft = true;
+    state.dirtyDraft = true;
     updateDraftButtons();
     fullRender();
     showNotice("info", `Período agregado: ${tid}.`);
