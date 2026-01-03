@@ -7,6 +7,8 @@
 let CONFIG=null, ALL=null, DRAFT=null;
 let draftMode=false, dirtyDraft=false;
 let ADD_TERM_TOUCHED=false; // si el usuario tocó addYear/addSem, no auto-sobrescribir
+let CREATE_TERM_ID=null;
+let SUGGEST_CLEANUPS=[];
 
 const $ = (id) => document.getElementById(id);
 const on = (id, ev, fn) => $(id)?.addEventListener(ev, fn);
@@ -182,6 +184,7 @@ async function loadAll() {
     fetchJSON("/api/all"),
     fetchJSON("/api/draft"),
   ]);
+  ensureDraftDefaults();
 
   $("ver").textContent = ALL?.version || "";
   $("base").textContent = ALL?.debug?.base_dir || "";
@@ -212,6 +215,45 @@ function normalizePrereqs(rawList) {
     out.push(m ? { code: m[1].trim(), isCo: true, raw: item } : { code: item, isCo: false, raw: item });
   }
   return out;
+}
+
+const normalizeSigla = (s) => String(s || "").trim().toUpperCase();
+
+function ensureDraftDefaults(){
+  if (!DRAFT || typeof DRAFT !== "object") DRAFT = {};
+  if (!Array.isArray(DRAFT.temp_courses)) DRAFT.temp_courses = [];
+  if (!Array.isArray(DRAFT.term_order)) DRAFT.term_order = [];
+  if (!Array.isArray(DRAFT.custom_terms)) DRAFT.custom_terms = [];
+  if (!DRAFT.placements || typeof DRAFT.placements !== "object") DRAFT.placements = {};
+  if (!DRAFT.ignored_warnings || typeof DRAFT.ignored_warnings !== "object") DRAFT.ignored_warnings = {};
+}
+
+function getEffectiveCourses(){
+  const temps = Array.isArray(DRAFT?.temp_courses) ? DRAFT.temp_courses : [];
+  return [...(ALL?.courses || []), ...temps];
+}
+
+function getSiglaSet(){
+  const set = new Set();
+  for (const c of getEffectiveCourses()) {
+    const s = normalizeSigla(c.sigla);
+    if (s) set.add(s);
+  }
+  return set;
+}
+
+function parseCodes(str){
+  return String(str || "")
+    .split(/[,\s]+/)
+    .map(normalizeSigla)
+    .filter(Boolean);
+}
+
+function buildPrereqList(prStr, coStr){
+  const prs = parseCodes(prStr);
+  const cos = parseCodes(coStr).map(c => `${c}(c)`);
+  const out = [...prs, ...cos];
+  return out.length ? out : ["nt"];
 }
 
 // ---------- Unlock view (click) ----------
@@ -351,7 +393,7 @@ function computeWarnings(terms, courses, placements, draft) {
   const courseBySigla = new Map();
 
   for (const c of (courses || [])) {
-    const s = String(c.sigla || "").trim();
+    const s = normalizeSigla(c.sigla);
     if (s) courseBySigla.set(s, c);
   }
 
@@ -424,6 +466,142 @@ function computeWarnings(terms, courses, placements, draft) {
 
   for (const w of warnings) w.ignored = !!ignored[w.id];
   return warnings;
+}
+
+function closeSuggests(){
+  for (const fn of SUGGEST_CLEANUPS) {
+    try { fn(); } catch {}
+  }
+}
+
+function wireSuggest(inputId, menuId){
+  const input = $(inputId), menu = $(menuId);
+  if (!input || !menu) return;
+  const close = () => { menu.classList.remove("visible"); };
+  const token = (v) => {
+    const parts = String(v || "").split(/[,\s]+/).filter(Boolean);
+    return normalizeSigla(parts[parts.length - 1] || "");
+  };
+  const apply = (sig) => {
+    const parts = String(input.value || "").split(/[,\s]+/).filter(Boolean);
+    if (!parts.length) parts.push(sig);
+    else parts[parts.length - 1] = sig;
+    input.value = parts.join(", ");
+    close();
+    input.focus();
+  };
+  const render = () => {
+    const tk = token(input.value);
+    const opts = tk ? Array.from(getSiglaSet()).filter(s => s.startsWith(tk)).slice(0, 8) : [];
+    menu.innerHTML = "";
+    if (!opts.length) return close();
+    for (const op of opts) {
+      const item = mk("div", "suggest-item", op);
+      item.addEventListener("mousedown", (ev) => { ev.preventDefault(); apply(op); });
+      menu.appendChild(item);
+    }
+    menu.classList.add("visible");
+  };
+
+  input.addEventListener("input", render);
+  input.addEventListener("focus", render);
+  input.addEventListener("keydown", (ev) => { if (ev.key === "Escape") close(); });
+  input.addEventListener("blur", () => setTimeout(close, 80));
+
+  SUGGEST_CLEANUPS.push(close);
+}
+
+function resetCourseForm(termId){
+  CREATE_TERM_ID = termId || null;
+  closeSuggests();
+  const set = (id, v="") => { const el = $(id); if (el) el.value = v; };
+  set("cSigla");
+  set("cNombre");
+  set("cCreditos");
+  set("cPrereq");
+  set("cCoreq");
+  const sems = ["cSemV", "cSemI", "cSemP"];
+  for (const id of sems) { const el = $(id); if (el) el.checked = false; }
+  const conc = $("cConcentracion");
+  if (conc) conc.value = "ex";
+}
+
+function pickCreateTermId(){
+  if (CREATE_TERM_ID) return CREATE_TERM_ID;
+  const gridTerm = document.querySelector(".term")?.dataset?.termId;
+  if (gridTerm) return gridTerm;
+  if (Array.isArray(DRAFT?.term_order) && DRAFT.term_order.length) return DRAFT.term_order[0];
+  if (Array.isArray(ALL?.terms) && ALL.terms.length) return ALL.terms[0].term_id;
+  return null;
+}
+
+function openCourseModal(termId){
+  resetCourseForm(termId);
+  const el = $("courseModal");
+  if (el) el.style.display = "flex";
+  $("cSigla")?.focus();
+}
+
+function closeCourseModal(){
+  closeSuggests();
+  const el = $("courseModal");
+  if (el) el.style.display = "none";
+}
+
+function handleCourseCreate(ev){
+  try { ev.preventDefault(); } catch {}
+  if (!draftMode) return showNotice("hard", "Solo disponible en modo borrador.");
+
+  const sigla = normalizeSigla($("cSigla")?.value);
+  if (!sigla) return showNotice("hard", "La sigla es requerida.");
+
+  const sigSet = getSiglaSet();
+  if (sigSet.has(sigla)) return showNotice("hard", `La sigla ${sigla} ya existe.`);
+
+  const nombre = String($("cNombre")?.value || "").trim();
+  const creditos = Number($("cCreditos")?.value || 0) || 0;
+  const prereqRaw = $("cPrereq")?.value || "";
+  const coreqRaw = $("cCoreq")?.value || "";
+
+  const prerequisitos = buildPrereqList(prereqRaw, coreqRaw);
+  const rawCodes = [...parseCodes(prereqRaw), ...parseCodes(coreqRaw)];
+  const unknown = rawCodes.filter(c => !sigSet.has(c));
+  if (unknown.length) {
+    const uniq = Array.from(new Set(unknown)).join(", ");
+    showNotice("soft", `Siglas no encontradas: ${uniq}.`);
+  }
+
+  const semOf = [];
+  if ($("cSemV")?.checked) semOf.push("V");
+  if ($("cSemI")?.checked) semOf.push("I");
+  if ($("cSemP")?.checked) semOf.push("P");
+  const concentracion = normalizeCat($("cConcentracion")?.value);
+
+  const termId = pickCreateTermId();
+  if (!termId) return showNotice("hard", "No se pudo determinar el período destino.");
+
+  const course = {
+    course_id: `draft:${sigla}`,
+    term_id: termId,
+    sigla,
+    nombre,
+    creditos,
+    aprobado: false,
+    concentracion,
+    prerrequisitos,
+    semestreOfrecido: semOf,
+    frontmatter: {},
+  };
+
+  ensureDraftDefaults();
+  DRAFT.temp_courses.push(course);
+  DRAFT.placements = DRAFT.placements || {};
+  DRAFT.placements[course.course_id] = termId;
+  dirtyDraft = true;
+  updateDraftButtons();
+  fullRender();
+  closeCourseModal();
+  showNotice("info", `Curso temporal creado: ${sigla}.`);
 }
 
 // ---------- render ----------
@@ -589,7 +767,7 @@ function render(terms, courses, placements, warnings) {
       add.title = `Agregar curso en ${t.term_id}`;
       add.dataset.termId = t.term_id;
       add.draggable = false;
-      add.addEventListener("click", (ev) => { ev.stopPropagation(); });
+      add.addEventListener("click", (ev) => { ev.stopPropagation(); openCourseModal(t.term_id); });
       list.appendChild(add);
     }
 
@@ -673,11 +851,14 @@ const closeWarningsModal = () => { const el = $("warningsModal"); if (el) el.sty
 function fullRender() {
   if (!ALL || !CONFIG || !DRAFT) return;
 
-  const { terms, placements } = buildEffectiveTermsAndPlacements(ALL.terms, ALL.courses, DRAFT);
-  Unlock.buildAdj(ALL.courses);
-  setAddTermDefaultIfUntouched(terms, ALL.courses, placements);
+  ensureDraftDefaults();
+  const effectiveCourses = getEffectiveCourses();
 
-  const warnings = computeWarnings(terms, ALL.courses, placements, DRAFT);
+  const { terms, placements } = buildEffectiveTermsAndPlacements(ALL.terms, effectiveCourses, DRAFT);
+  Unlock.buildAdj(effectiveCourses);
+  setAddTermDefaultIfUntouched(terms, effectiveCourses, placements);
+
+  const warnings = computeWarnings(terms, effectiveCourses, placements, DRAFT);
 
   // show first (non-ignored) hard, else soft (banner)
   const showIgnored = !!$("showIgnored")?.checked;
@@ -689,7 +870,7 @@ function fullRender() {
   else if (firstSoft) showNotice("soft", firstSoft.text);
   else hideNotice();
 
-  render(terms, ALL.courses, placements, warnings);
+  render(terms, effectiveCourses, placements, warnings);
 }
 
 async function saveDraftToServer() {
@@ -705,6 +886,7 @@ async function saveDraftToServer() {
 
 async function resetDraftFromServer() {
   DRAFT = await fetchJSON("/api/draft");
+  ensureDraftDefaults();
   ADD_TERM_TOUCHED = false;
   dirtyDraft = false;
   updateDraftButtons();
@@ -769,6 +951,16 @@ function initHandlers() {
   });
 
   on("showIgnored", "change", fullRender);
+
+  on("courseClose", "click", closeCourseModal);
+  on("courseModal", "click", (ev) => {
+    if (ev.target === $("courseModal")) closeCourseModal();
+  });
+
+  const courseForm = $("courseForm");
+  if (courseForm) courseForm.addEventListener("submit", handleCourseCreate);
+  wireSuggest("cPrereq", "cPrereqSuggest");
+  wireSuggest("cCoreq", "cCoreqSuggest");
 
   // Si el usuario toca los controles de "Agregar período", no volver a auto-setear defaults.
   for (const ev of ["input", "change"]) {

@@ -57,6 +57,65 @@
     </div>
   </div>
 
+  <div class="modal-backdrop" id="courseModal">
+    <div class="modal" role="dialog" aria-modal="true" aria-label="Nuevo curso temporal">
+      <div class="modal-h">
+        <div class="modal-title">Nuevo curso (borrador)</div>
+        <div class="modal-controls">
+          <button id="courseClose" type="button">Cerrar</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <form id="courseForm" class="course-form">
+          <div class="field">
+            <label for="cSigla">Sigla *</label>
+            <input id="cSigla" name="sigla" type="text" required />
+          </div>
+          <div class="field">
+            <label for="cNombre">Nombre</label>
+            <input id="cNombre" name="nombre" type="text" />
+          </div>
+          <div class="field">
+            <label for="cCreditos">Créditos</label>
+            <input id="cCreditos" name="creditos" type="number" min="0" step="1" />
+          </div>
+          <div class="field">
+            <label for="cPrereq">Prerrequisitos</label>
+            <input id="cPrereq" name="prereq" type="text" placeholder="si no tiene dejar vacío" autocomplete="off" />
+            <div id="cPrereqSuggest" class="suggest"></div>
+          </div>
+          <div class="field">
+            <label for="cCoreq">Correquisitos</label>
+            <input id="cCoreq" name="coreq" type="text" placeholder="si no tiene dejar vacío" autocomplete="off" />
+            <div id="cCoreqSuggest" class="suggest"></div>
+          </div>
+          <div class="field">
+            <div class="lbl">Semestre ofrecido</div>
+            <div class="chip-row">
+              <label class="chip"><input type="checkbox" id="cSemV" value="V" /> V</label>
+              <label class="chip"><input type="checkbox" id="cSemI" value="I" /> I</label>
+              <label class="chip"><input type="checkbox" id="cSemP" value="P" /> P</label>
+            </div>
+          </div>
+          <div class="field">
+            <label for="cConcentracion">Concentración</label>
+            <select id="cConcentracion" name="concentracion">
+              <option value="MScB">MScB</option>
+              <option value="M">M</option>
+              <option value="m">m</option>
+              <option value="FI">FI</option>
+              <option value="OFG">OFG</option>
+              <option value="ex">ex</option>
+            </select>
+          </div>
+          <div class="form-actions">
+            <button id="courseSave" type="submit">Crear</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <div class="grid-wrap"><div class="grid" id="grid"></div></div>
 
   <details>

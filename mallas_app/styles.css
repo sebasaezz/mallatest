@@ -282,3 +282,20 @@ button:hover{filter:brightness(0.96)}
 
 details{margin-top:10px}
 pre{white-space:pre-wrap;word-break:break-word;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:10px}
+
+/* Course modal */
+.course-form{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.course-form .field{display:flex;flex-direction:column;gap:6px;position:relative}
+.course-form label,.course-form .lbl{font-weight:700;font-size:13px}
+.course-form input,.course-form select{width:100%}
+.course-form .form-actions{grid-column:1/-1;display:flex;justify-content:flex-end;margin-top:6px}
+.course-form button{padding:8px 12px;border-radius:10px}
+
+.chip-row{display:flex;gap:8px;flex-wrap:wrap}
+.chip{display:inline-flex;gap:6px;align-items:center;padding:6px 10px;border:1px solid var(--border);border-radius:999px;background:var(--surface);cursor:pointer}
+.chip input{margin:0}
+
+.suggest{position:absolute;top:100%;left:0;right:0;background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:0 4px 18px rgba(0,0,0,.18);z-index:10;display:none;max-height:160px;overflow:auto}
+.suggest.visible{display:block}
+.suggest-item{padding:6px 10px;cursor:pointer}
+.suggest-item:hover{background:var(--surface)}
