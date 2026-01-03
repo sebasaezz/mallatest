@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "2025-2/,Cursos/IEE1533.md",
+                "file": "2025-1/,Cursos/IIQ1003.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "IEE1533"
+              "title": "IIQ1003"
             }
           }
         ]
@@ -94,7 +94,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "2025-2/,Cursos/IEE1533.md",
+                "file": "2025-1/,Cursos/IIQ1003.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,7 +104,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks for IEE1533"
+              "title": "Backlinks for IIQ1003"
             }
           },
           {
@@ -113,12 +113,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "2025-2/,Cursos/IEE1533.md",
+                "file": "2025-1/,Cursos/IIQ1003.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links from IEE1533"
+              "title": "Outgoing links from IIQ1003"
             }
           },
           {
@@ -156,13 +156,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "2025-2/,Cursos/IEE1533.md",
+                "file": "2025-1/,Cursos/IIQ1003.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline of IEE1533"
+              "title": "Outline of IIQ1003"
             }
           }
         ]
@@ -185,6 +185,8 @@
   },
   "active": "cceed0accc60e9dc",
   "lastOpenFiles": [
+    "mallas_app/modules/render.js",
+    "2025-2/,Cursos/IEE1533.md",
     "2025-1/,Cursos/MAT1630.md",
     "mallas_app/modules/warnings.js",
     "mallas_app/modules/state.js",
