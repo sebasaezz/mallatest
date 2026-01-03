@@ -17,6 +17,14 @@ import {
 } from "./modules/render.js";
 import { initDragDrop } from "./modules/dragdrop.js";
 import { initUnlock } from "./modules/unlock.js";
+import { openCreateCourseModal } from "./modules/courseModal.js";
+import {
+  ensureDraftTempCourses,
+  mergeTempCourses,
+  makeTempCourse,
+  addTempCourseToDraft,
+  listAllSiglas,
+} from "./modules/tempCourses.js";
 
 // State moved to modules/state.js (kept as a single shared object).
 let ADD_TERM_TOUCHED=false; // si el usuario tocó addYear/addSem, no auto-sobrescribir
@@ -172,8 +180,13 @@ async function loadAll() {
     getAll(),
     getDraft(),
   ]);
+
+  // Keep a reference to the real course list from the backend.
+  // We'll merge draft.temp_courses on top for runtime.
+  state._realCourses = Array.isArray(all?.courses) ? all.courses : [];
+
   setData({ config, all, draft });
-  rebuildMaps();
+  mergeCoursesWithTemps();
 
   $("ver").textContent = state.all?.version || "";
   $("base").textContent = state.all?.debug?.base_dir || "";
@@ -204,6 +217,51 @@ function normalizePrereqs(rawList) {
     out.push(m ? { code: m[1].trim(), isCo: true, raw: item } : { code: item, isCo: false, raw: item });
   }
   return out;
+}
+
+// ---------- temp courses (draft-only) ----------
+function mergeCoursesWithTemps() {
+  if (!state.all || !state.draft) return;
+  ensureDraftTempCourses(state.draft);
+
+  const real = Array.isArray(state._realCourses)
+    ? state._realCourses
+    : (Array.isArray(state.all?.courses) ? state.all.courses : []).filter((c) => !c?.is_temp);
+
+  // Replace array reference so unlock/warnings can detect changes.
+  state.all.courses = mergeTempCourses(real, state.draft);
+  rebuildMaps();
+}
+
+function openTempCourseCreator(termId) {
+  if (!state.draftMode) return;
+  const term_id = String(termId || "").trim();
+  if (!term_id) return;
+
+  const catalog = Array.isArray(state.all?.courses) ? state.all.courses : [];
+  const siglaSet = listAllSiglas(catalog);
+
+  openCreateCourseModal({
+    term_id,
+    catalog,
+    siglaSet,
+    defaultConcentracion: "ex",
+    onSubmit: (form) => {
+      try {
+        const existingSiglas = listAllSiglas(Array.isArray(state.all?.courses) ? state.all.courses : []);
+        const course = makeTempCourse(form, term_id, { existingSiglas });
+        addTempCourseToDraft(state.draft, course, term_id);
+
+        state.dirtyDraft = true;
+        mergeCoursesWithTemps();
+        updateDraftButtons();
+        fullRenderMod();
+        showNotice("info", `Curso temporal creado: ${course.sigla}.`);
+      } catch (e) {
+        showNotice("hard", String(e?.message || e));
+      }
+    },
+  });
 }
 
 // ---------- draft terms + placements ----------
@@ -513,6 +571,7 @@ async function resetDraftFromServer() {
   state.draft = await getDraft();
   ADD_TERM_TOUCHED = false;
   state.dirtyDraft = false;
+  mergeCoursesWithTemps();
   updateDraftButtons();
   fullRenderMod();
   showNotice("info", "Borrador reseteado (se recargó desde disco)." );
@@ -531,6 +590,24 @@ const parseSemValue = (raw) => {
 };
 
 function initHandlers() {
+  // Capture-phase handler so it still works even if the (+) button stops propagation.
+  $("grid")?.addEventListener(
+    "click",
+    (ev) => {
+      if (!state.draftMode) return;
+      const btn = ev.target?.closest?.(".course-add");
+      if (!btn) return;
+      const tid =
+        btn.dataset?.termId ||
+        btn.dataset?.term_id ||
+        btn.getAttribute?.("data-term-id") ||
+        btn.getAttribute?.("data-termid");
+      if (!tid) return;
+      ev.preventDefault();
+      openTempCourseCreator(tid);
+    },
+    true
+  );
   on("noticeClose", "click", clearWarnNotice);
 
   on("reloadBtn", "click", async () => {
@@ -559,7 +636,7 @@ function initHandlers() {
   on("draftToggle", "change", () => {
     state.draftMode = !!$("draftToggle")?.checked;
     updateDraftButtons();
-    fullRender();
+    fullRenderMod();
   });
 
   // Sync inicial: si el checkbox viene marcado al cargar (estado persistido por el browser)
