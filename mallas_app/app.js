@@ -596,22 +596,77 @@ const parseSemValue = (raw) => {
   return NaN;
 };
 
+// Second-click course menu: implemented in app.js to be robust against init-order issues.
+// - First click selects (unlock)
+// - Second click on the same course opens the course menu (dummy)
+let _armedCourseMenuId = null;
+const _getCourseIdFromTarget = (t) => {
+  const el = t?.closest?.(".course");
+  if (!el) return null;
+  if (el.classList.contains("course-add")) return null;
+  return (
+    el.dataset?.courseId ||
+    el.dataset?.course_id ||
+    el.getAttribute?.("data-course-id") ||
+    el.getAttribute?.("data-courseid") ||
+    null
+  );
+};
+const _openMenuForCourseId = (courseId) => {
+  const cid = String(courseId || "").trim();
+  if (!cid) return;
+  const course =
+    state.byId?.get?.(cid) ||
+    (Array.isArray(state.all?.courses) ? state.all.courses.find((c) => c?.course_id === cid) : null);
+  if (!course) {
+    showNotice("soft", `No se encontró el curso para abrir menú: ${cid}.`);
+    return;
+  }
+  openCourseMenu({ course, isDraftMode: !!state.draftMode });
+};
+
 function initHandlers() {
-  // Capture-phase handler so it still works even if the (+) button stops propagation.
+  // Capture-phase handlers so they still work even if some child stops propagation.
+  // 1) (+) create temp course
+  // 2) second-click course menu (dummy)
+
   $("grid")?.addEventListener(
     "click",
     (ev) => {
-      if (!state.draftMode) return;
-      const btn = ev.target?.closest?.(".course-add");
-      if (!btn) return;
-      const tid =
-        btn.dataset?.termId ||
-        btn.dataset?.term_id ||
-        btn.getAttribute?.("data-term-id") ||
-        btn.getAttribute?.("data-termid");
-      if (!tid) return;
-      ev.preventDefault();
-      openTempCourseCreator(tid);
+      // (+) create temp course
+      if (state.draftMode) {
+        const btn = ev.target?.closest?.(".course-add");
+        if (btn) {
+          const tid =
+            btn.dataset?.termId ||
+            btn.dataset?.term_id ||
+            btn.getAttribute?.("data-term-id") ||
+            btn.getAttribute?.("data-termid");
+          if (tid) {
+            ev.preventDefault();
+            openTempCourseCreator(tid);
+            return;
+          }
+        }
+      }
+
+      // second-click course menu (always opens)
+      const cid = _getCourseIdFromTarget(ev.target);
+      if (cid) {
+        const id = String(cid);
+        if (_armedCourseMenuId === id) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          _openMenuForCourseId(id);
+          // keep it armed so repeated clicks keep opening the menu until user clicks elsewhere
+          return;
+        }
+        _armedCourseMenuId = id;
+        return; // let unlock handle selection on first click
+      }
+
+      // click outside any course: disarm
+      _armedCourseMenuId = null;
     },
     true
   );
@@ -735,9 +790,9 @@ async function main() {
       gridId: "grid",
       enabled: true,
       onSecondClick: (courseId) => {
-        const course = state.byId?.get?.(courseId) || (Array.isArray(state.all?.courses) ? state.all.courses.find((c) => c.course_id === courseId) : null);
-        if (!course) return;
-        openCourseMenu({ course, isDraftMode: !!state.draftMode });
+        // Keep unlock.js callback too, but primary behavior is implemented in app.js capture handler.
+        // This is a safety net in case event propagation changes.
+        _openMenuForCourseId(courseId);
       },
     });
 
