@@ -8,6 +8,7 @@ import { byId } from "./modules/utils.js";
 import { showNotice, hideNotice } from "./modules/toasts.js";
 import { getConfig, getAll, getDraft, saveDraft } from "./modules/api.js";
 import { state, setData, rebuildMaps } from "./modules/state.js";
+import { computeWarnings as computeWarningsMod } from "./modules/warnings.js";
 
 // State moved to modules/state.js (kept as a single shared object).
 let ADD_TERM_TOUCHED=false; // si el usuario tocó addYear/addSem, no auto-sobrescribir
@@ -326,7 +327,7 @@ function buildEffectiveTermsAndPlacements(allTerms, allCourses, draft) {
 }
 
 // ---------- warnings (soft/hard) ----------
-function computeWarnings(terms, courses, placements, draft, config) {
+function computeWarningsLocal(terms, courses, placements, draft, config) {
   const warnings = [];
   const ignored = (draft && typeof draft.ignored_warnings === "object") ? draft.ignored_warnings : {};
 
@@ -407,6 +408,15 @@ function computeWarnings(terms, courses, placements, draft, config) {
 
   for (const w of warnings) w.ignored = !!ignored[w.id];
   return warnings;
+}
+
+// Wrapper: prefer module implementation once it matches legacy return shape (Array).
+function computeWarnings(terms, courses, placements, draft, config) {
+  try {
+    const out = computeWarningsMod(terms, courses, placements, draft, config);
+    if (Array.isArray(out)) return out;
+  } catch {}
+  return computeWarningsLocal(terms, courses, placements, draft, config);
 }
 
 // ---------- render ----------
