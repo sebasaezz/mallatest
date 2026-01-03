@@ -79,6 +79,13 @@ function renderLegend(){
   _legendDone = true;
 }
 
+// ---------- términos ----------
+// Helpers de términos (TERM_RE, termParts, computeNextNonSummerFromLast, etc.)
+// viven en logic.js, cargado antes de este archivo desde index.html.
+if (typeof termParts !== "function" || typeof computeWarnings !== "function") {
+  throw new Error("logic.js debe cargarse antes que app.js");
+}
+
 function setAddTermDefaultIfUntouched(terms, courses, placements, force=false){
   const yEl = $("addYear"), sEl = $("addSem");
   if (!yEl || !sEl) return;
@@ -161,6 +168,9 @@ function updateDraftButtons() {
   if (addBtn) addBtn.disabled = !draftMode;
 }
 
+// ---------- prereqs parsing ----------
+// Las rutinas normalizePrereqs (y helpers de prereqs) se cargan desde logic.js.
+
 // ---------- Unlock view (click) ----------
 const Unlock = {
   adj: null, dom: new Map(), active: [], selId: null, selEl: null,
@@ -241,6 +251,10 @@ const Unlock = {
     this.applyBlink(this.selId);
   },
 };
+
+// ---------- draft terms + placements ----------
+// buildEffectiveTermsAndPlacements y computeWarnings se mueven a logic.js para evitar colisiones
+// y mantenerlos compartidos entre archivos.
 
 // ---------- course modal (draft: temp courses) ----------
 const siglaNorm = (x) => String(x || "").trim().toUpperCase();
