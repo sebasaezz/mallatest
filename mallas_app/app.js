@@ -6,7 +6,7 @@
 
 import { byId } from "./modules/utils.js";
 import { showNotice, hideNotice } from "./modules/toasts.js";
-import { getConfig, getAll, getDraft, saveDraft } from "./modules/api.js";
+import { getConfig, getAll, getDraft, saveDraft, hardResetDraft } from "./modules/api.js";
 import { state, setData, rebuildMaps } from "./modules/state.js";
 import { computeWarnings as computeWarningsBase } from "./modules/warnings.js";
 import {
@@ -200,9 +200,10 @@ async function loadAll() {
 }
 
 function updateDraftButtons() {
-  const saveBtn = $("saveBtn"), resetBtn = $("resetBtn"), addBtn = $("addTermBtn");
+  const saveBtn = $("saveBtn"), resetBtn = $("resetBtn"), addBtn = $("addTermBtn"), hardBtn = $("hardResetBtn");
   if (saveBtn) saveBtn.disabled = !state.draftMode || !state.dirtyDraft;
   if (resetBtn) resetBtn.disabled = !state.draftMode;
+  if (hardBtn) hardBtn.disabled = !state.draftMode;
   if (addBtn) addBtn.disabled = !state.draftMode;
 }
 
@@ -634,6 +635,21 @@ function initHandlers() {
   on("resetBtn", "click", async () => {
     try { await resetDraftFromServer(); }
     catch (e) { showNotice("hard", String(e.message || e)); }
+  });
+
+  on("hardResetBtn", "click", async () => {
+    if (!state.draftMode) return;
+    const ok = confirm(
+      "Esto borrará el borrador guardado en disco (malla_draft.json) y restaurará la malla real desde Obsidian. ¿Continuar?"
+    );
+    if (!ok) return;
+    try {
+      await hardResetDraft();
+      showNotice("info", "Borrador eliminado. Recargando…");
+      setTimeout(() => location.reload(), 150);
+    } catch (e) {
+      showNotice("hard", String(e.message || e));
+    }
   });
 
   on("themeToggle", "change", () => saveTheme($("themeToggle")?.checked ? "dark" : "light"));
