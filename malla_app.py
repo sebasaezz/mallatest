@@ -13,7 +13,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 APP_NAME = "malla_app"
-APP_VERSION = "0.9.51"
+APP_VERSION = "0.9.6"
 
 TERM_RE = re.compile(r"^(?P<y>\d{4})-(?P<s>[012])(?:\b|$)")
 COURSE_DIRS = [",Cursos", "Cursos"]
