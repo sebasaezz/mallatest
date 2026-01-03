@@ -89,28 +89,6 @@ const termIndex = (term_id) => {
   const p = termParts(term_id);
   return p ? (p.year * 10 + p.sem) : 999999;
 };
-const SEM_CODE_BY_NUM = { 0:"V", 1:"I", 2:"P" };
-const SEM_ORDER = ["V", "I", "P"];
-const semCodeFromNum = (n) => SEM_CODE_BY_NUM.hasOwnProperty(n) ? SEM_CODE_BY_NUM[n] : null;
-const parseSemCode = (raw) => {
-  const s = String(raw ?? "").trim();
-  if (!s) return null;
-  const n = parseInt(s, 10);
-  if (Number.isFinite(n) && SEM_CODE_BY_NUM.hasOwnProperty(n)) return semCodeFromNum(n);
-  const u = s.toUpperCase();
-  if (SEM_ORDER.includes(u)) return u;
-  return null;
-};
-function normalizeSemestreOfrecido(course) {
-  const raw = (course && course.hasOwnProperty("semestreOfrecido")) ? course.semestreOfrecido : course?.frontmatter?.semestreOfrecido;
-  const list = Array.isArray(raw) ? raw : (raw ? [raw] : []);
-  const set = new Set();
-  for (const item of list) {
-    const code = parseSemCode(item);
-    if (code) set.add(code);
-  }
-  return set;
-}
 const nextNonSummer = (p) => {
   if (!p) return null;
   const { year:y, sem:s } = p;
@@ -419,10 +397,6 @@ function computeWarnings(terms, courses, placements, draft) {
   for (const c of (courses || [])) {
     const tid = placements.get(c.course_id) || c.term_id;
     const tpos = termPos.has(tid) ? termPos.get(tid) : 999999;
-    const termInfo = termParts(tid);
-    const termSemCode = termInfo ? semCodeFromNum(termInfo.sem) : null;
-    const offered = normalizeSemestreOfrecido(c);
-    const offeredList = SEM_ORDER.filter(x => offered.has(x));
 
     if (DEBUG_WARN && dbgTempLeft > 0 && isTemp(c?.course_id)) {
       dbgTempLeft--;
@@ -433,15 +407,6 @@ function computeWarnings(terms, courses, placements, draft) {
         semestreOfrecido: c?.semestreOfrecido,
         fm_semestreOfrecido: c?.frontmatter?.semestreOfrecido,
         normalized: normalizePrereqs(c?.prerrequisitos),
-      });
-    }
-
-    if (termSemCode && offered.size && !offered.has(termSemCode)) {
-      const allowedText = offeredList.length ? offeredList.join("/") : "V/I/P";
-      warnings.push({
-        id:`offer:${c.sigla}:${tid}`, kind:"soft", scope:"course", term_id:tid, course_id:c.course_id,
-        text:`${c.sigla}: oferta ${allowedText}, ubicado en ${tid}.`, sub:"Verifica que el período coincida con los semestres ofrecidos.",
-        meta:{ offered: offeredList, termSemCode },
       });
     }
 
@@ -786,20 +751,14 @@ function render(terms, courses, placements, warnings) {
       );
       append(row1, mk("div", "sigla", sigla), right);
 
-      const offered = normalizeSemestreOfrecido(c);
-      const offeredList = SEM_ORDER.filter(x => offered.has(x));
-      const offeredLabel = offeredList.length ? offeredList.join(" / ") : "V / I / P";
-      const tags = mk("div", "tags");
-      tags.appendChild(mk("div", "tag offer", `Oferta: ${offeredLabel}`));
-
-      for (const w of cw.slice(0, 3)) {
-        tags.appendChild(mk("div", `tag ${w.kind === "hard" ? "bad" : "warn"}`, w.kind === "hard" ? "HARD" : "SOFT"));
-      }
-
       append(card,
         row1,
         nombre ? mk("div", "name", nombre) : null,
-        tags,
+        cw.length ? (() => {
+          const tags = mk("div", "tags");
+          for (const w of cw.slice(0, 3)) tags.appendChild(mk("div", `tag ${w.kind === "hard" ? "bad" : "warn"}`, w.kind === "hard" ? "HARD" : "SOFT"));
+          return tags;
+        })() : null,
       );
 
       if (draftMode) {
