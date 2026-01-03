@@ -185,6 +185,7 @@
   },
   "active": "cceed0accc60e9dc",
   "lastOpenFiles": [
+    "mallas_app/modules/dragdrop.js",
     "mallas_app/modules/render.js",
     "2025-2/,Cursos/IEE1533.md",
     "2025-1/,Cursos/MAT1630.md",
@@ -197,7 +198,6 @@
     "README.md",
     "malla_app.py",
     "mallas_app/app.js",
-    "mallas_app/styles.css",
-    "mallas_app/index.html"
+    "mallas_app/styles.css"
   ]
 }
