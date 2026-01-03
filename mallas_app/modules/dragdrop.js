@@ -17,6 +17,8 @@ import { state } from "./state.js";
 let _installed = false;
 let _dragCourseId = null;
 let _dragEl = null;
+let _overTermEl = null;
+let _dragging = false;
 
 function courseIdFromEl(el) {
   if (!el) return null;
@@ -103,6 +105,52 @@ function setDraggingCss(el, on) {
   el.classList.toggle("dragging", !!on);
 }
 
+function setGlobalDragging(on) {
+  _dragging = !!on;
+  document.documentElement.classList.toggle("is-dragging", _dragging);
+}
+
+function showDropHint(termEl) {
+  if (!termEl) return;
+  // Prefer CSS classes (if present) and also apply an inline fallback.
+  termEl.classList.add("is-drop-target", "drag-over");
+
+  const hint = termEl.querySelector?.(".drop-hint");
+  if (!hint) return;
+  hint.classList.add("is-visible");
+
+  try {
+    const cs = window.getComputedStyle(hint);
+    if (cs.display === "none") hint.style.display = "block";
+    if (Number(cs.opacity) === 0) hint.style.opacity = "1";
+  } catch {
+    hint.style.display = "block";
+    hint.style.opacity = "1";
+  }
+}
+
+function hideDropHint(termEl) {
+  if (!termEl) return;
+  termEl.classList.remove("is-drop-target", "drag-over");
+  const hint = termEl.querySelector?.(".drop-hint");
+  if (!hint) return;
+  hint.classList.remove("is-visible");
+  hint.style.display = "";
+  hint.style.opacity = "";
+}
+
+function setDropTarget(termEl) {
+  if (termEl === _overTermEl) return;
+  if (_overTermEl) hideDropHint(_overTermEl);
+  _overTermEl = termEl;
+  if (_overTermEl) showDropHint(_overTermEl);
+}
+
+function clearDropTarget() {
+  if (_overTermEl) hideDropHint(_overTermEl);
+  _overTermEl = null;
+}
+
 function canUseDragDrop() {
   return !!state.draftMode;
 }
@@ -137,6 +185,8 @@ export function initDragDrop(deps) {
       _dragCourseId = String(cid);
       _dragEl = courseEl;
       setDraggingCss(courseEl, true);
+      setGlobalDragging(true);
+      clearDropTarget();
 
       try {
         ev.dataTransfer.effectAllowed = "move";
@@ -152,6 +202,8 @@ export function initDragDrop(deps) {
       if (_dragEl) setDraggingCss(_dragEl, false);
       _dragEl = null;
       _dragCourseId = null;
+      clearDropTarget();
+      setGlobalDragging(false);
     },
     true
   );
@@ -160,8 +212,16 @@ export function initDragDrop(deps) {
     "dragover",
     (ev) => {
       if (!canUseDragDrop()) return;
+      if (!_dragging) return;
+
       const termEl = findTermEl(ev.target);
-      if (!termEl) return;
+      if (!termEl) {
+        setDropTarget(null);
+        return;
+      }
+
+      setDropTarget(termEl);
+
       // Allow drop
       ev.preventDefault();
       try {
@@ -179,6 +239,10 @@ export function initDragDrop(deps) {
       if (!termEl) return;
 
       ev.preventDefault();
+
+      // End visual state early so UI doesn't get stuck.
+      clearDropTarget();
+      setGlobalDragging(false);
 
       let cid = _dragCourseId;
       try {
