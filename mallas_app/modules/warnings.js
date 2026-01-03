@@ -11,13 +11,22 @@
 // - There are "soft" (yellow) and "hard" (red) warnings.
 // - Ignored warnings are persisted in draft (ignored_warnings).
 
+// During modularization, we may need to preserve the *exact* legacy warning ids/shape.
+// app.js can inject the current implementation here, then we can later delete it from app.js.
+let _legacyComputeWarnings = null;
+
+/** Inject legacy computeWarnings implementation (behavior/ids preserved). */
+export function setLegacyComputeWarnings(fn) {
+  _legacyComputeWarnings = typeof fn === "function" ? fn : null;
+}
+
 /**
  * Compute warnings.
  *
  * IMPORTANT: Implementation will be moved from app.js verbatim (behavior-preserving)
  * on the next "edit app.js" step.
  */
-export function computeWarnings(terms, courses, placements, draft, config) {
+function computeWarningsFallback(terms, courses, placements, draft, config) {
   const ignored = (draft && typeof draft.ignored_warnings === "object" && draft.ignored_warnings) || {};
 
   const maxC = config?.max_credits ?? 65;
@@ -187,8 +196,16 @@ export function computeWarnings(terms, courses, placements, draft, config) {
 
     return String(a.text || "").localeCompare(String(b.text || ""), "es");
   });
-
   return warnings;
+}
+
+/**
+ * Compute warnings (module entrypoint).
+ * If a legacy implementation is injected, use it to preserve exact ids/shape.
+ */
+export function computeWarnings(terms, courses, placements, draft, config) {
+  if (_legacyComputeWarnings) return _legacyComputeWarnings(terms, courses, placements, draft, config);
+  return computeWarningsFallback(terms, courses, placements, draft, config);
 }
 
 /**
