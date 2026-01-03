@@ -23,16 +23,16 @@ export function computeWarnings(terms, courses, placements, draft, config) {
   const maxC = config?.max_credits ?? 65;
   const softC = config?.soft_credits ?? 50;
 
+  // Build term index for ordering.
   const termIndex = new Map();
   (Array.isArray(terms) ? terms : []).forEach((t, i) => {
     if (t && t.term_id != null) termIndex.set(String(t.term_id), i);
   });
 
-  const byId = new Map();
+  // Lookups.
   const bySigla = new Map();
   for (const c of Array.isArray(courses) ? courses : []) {
     if (!c) continue;
-    if (c.course_id != null) byId.set(String(c.course_id), c);
     if (c.sigla != null) bySigla.set(String(c.sigla), c);
   }
 
@@ -51,17 +51,13 @@ export function computeWarnings(terms, courses, placements, draft, config) {
     return termIndex.has(k) ? termIndex.get(k) : Infinity;
   };
 
-  const hard = [];
-  const soft = [];
+  /** @type {Array<any>} */
+  const warnings = [];
 
   const pushWarn = (kind, w) => {
     const id = String(w.id || "");
     const isIgnored = !!(id && ignored[id]);
-    w.kind = kind;
-    w.ignored = isIgnored;
-    if (isIgnored) return;
-    if (kind === "hard") hard.push(w);
-    else soft.push(w);
+    warnings.push({ ...w, id, kind, ignored: isIgnored });
   };
 
   // --- Credit load per term ---
@@ -78,6 +74,7 @@ export function computeWarnings(terms, courses, placements, draft, config) {
     if (total > maxC) {
       pushWarn("hard", {
         id: `credits:hard:${tid}`,
+        scope: "term",
         term_id: tid,
         text: `Sobrecarga: ${total} créditos (máx ${maxC})`,
         credits: total,
@@ -85,6 +82,7 @@ export function computeWarnings(terms, courses, placements, draft, config) {
     } else if (total > softC) {
       pushWarn("soft", {
         id: `credits:soft:${tid}`,
+        scope: "term",
         term_id: tid,
         text: `Carga alta: ${total} créditos (sobre ${softC})`,
         credits: total,
@@ -105,13 +103,16 @@ export function computeWarnings(terms, courses, placements, draft, config) {
     if (c.aprobado === true) continue;
 
     // Offered semester check (soft)
-    const offered = Array.isArray(c.semestreOfrecido) ? c.semestreOfrecido.filter(Boolean).map(String) : [];
+    const offered = Array.isArray(c.semestreOfrecido)
+      ? c.semestreOfrecido.filter(Boolean).map(String)
+      : [];
     if (offered.length && tid && termIndex.has(String(tid))) {
       const t = terms[termIndex.get(String(tid))];
       const code = t?.code != null ? String(t.code) : null;
       if (code && !offered.includes(code)) {
         pushWarn("soft", {
           id: `offered:${cid}:${tid}`,
+          scope: "course",
           course_id: cid,
           sigla,
           term_id: tid,
@@ -121,12 +122,15 @@ export function computeWarnings(terms, courses, placements, draft, config) {
     }
 
     // Prerequisites check
-    const prereqs = Array.isArray(c.prerrequisitos) ? c.prerrequisitos.filter(Boolean).map(String) : [];
+    const prereqs = Array.isArray(c.prerrequisitos)
+      ? c.prerrequisitos.filter(Boolean).map(String)
+      : [];
     for (const p of prereqs) {
       const pc = bySigla.get(p);
       if (!pc) {
         pushWarn("soft", {
           id: `prereq:unknown:${cid}:${p}`,
+          scope: "course",
           course_id: cid,
           sigla,
           term_id: tid,
@@ -143,7 +147,9 @@ export function computeWarnings(terms, courses, placements, draft, config) {
 
       // Mutual coreq in same term: A requires B and B requires A, scheduled same term.
       if (pIdx === cIdx && pIdx !== Infinity) {
-        const ppr = Array.isArray(pc.prerrequisitos) ? pc.prerrequisitos.filter(Boolean).map(String) : [];
+        const ppr = Array.isArray(pc.prerrequisitos)
+          ? pc.prerrequisitos.filter(Boolean).map(String)
+          : [];
         if (sigla && ppr.includes(sigla)) {
           continue; // mutual coreq => no warning
         }
@@ -152,6 +158,7 @@ export function computeWarnings(terms, courses, placements, draft, config) {
       if (pIdx >= cIdx) {
         pushWarn("hard", {
           id: `prereq:missing:${cid}:${p}:${tid || ""}`,
+          scope: "course",
           course_id: cid,
           sigla,
           term_id: tid,
@@ -162,17 +169,26 @@ export function computeWarnings(terms, courses, placements, draft, config) {
     }
   }
 
-  // Sort: keep stable but predictable.
-  const byTermThenText = (a, b) => {
-    const ai = getTermIdx(a.term_id);
-    const bi = getTermIdx(b.term_id);
+  // Sort: stable & predictable.
+  const kindRank = (k) => (k === "hard" ? 0 : 1);
+  warnings.sort((a, b) => {
+    // Active warnings first, ignored later.
+    const ai = a.ignored ? 1 : 0;
+    const bi = b.ignored ? 1 : 0;
     if (ai !== bi) return ai - bi;
-    return String(a.text || "").localeCompare(String(b.text || ""), "es");
-  };
-  hard.sort(byTermThenText);
-  soft.sort(byTermThenText);
 
-  return { hard, soft };
+    const ak = kindRank(a.kind);
+    const bk = kindRank(b.kind);
+    if (ak !== bk) return ak - bk;
+
+    const ati = getTermIdx(a.term_id);
+    const bti = getTermIdx(b.term_id);
+    if (ati !== bti) return ati - bti;
+
+    return String(a.text || "").localeCompare(String(b.text || ""), "es");
+  });
+
+  return warnings;
 }
 
 /**
@@ -180,6 +196,12 @@ export function computeWarnings(terms, courses, placements, draft, config) {
  * This is behavior-neutral and can be used by app.js once wired.
  */
 export function firstWarningSummary(warnings) {
+  // Supports either legacy array format or {hard,soft} object.
+  if (Array.isArray(warnings)) {
+    const firstHard = warnings.find((w) => w && w.kind === "hard" && !w.ignored) || null;
+    const firstSoft = warnings.find((w) => w && w.kind === "soft" && !w.ignored) || null;
+    return { firstHard, firstSoft };
+  }
   const hard = warnings?.hard || warnings?.hardWarnings || [];
   const soft = warnings?.soft || warnings?.softWarnings || [];
   const firstHard = Array.isArray(hard) && hard.length ? hard[0] : null;
