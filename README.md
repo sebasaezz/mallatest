@@ -20,6 +20,7 @@ Aplicación para gestionar mallas curriculares organizadas por carpetas semestra
 - Eliminar cursos desde disco.
 - Menús de curso al hacer segundo click (marcar aprobado, editar _frontmatter_).
 - Crear nuevas categorías desde la UI con selector de color y persistencia en disco.
+- Unlock para correquisitos.
 
 ## Estructura de carpetas
 

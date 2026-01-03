@@ -4,11 +4,24 @@
 // - Warnings (soft/hard) + ignorar persistente (draft)
 // - Unlock view: click en curso -> resalta + parpadea lo que desbloquea
 
-let CONFIG=null, ALL=null, DRAFT=null;
-let draftMode=false, dirtyDraft=false;
+import { byId } from "./modules/utils.js";
+import { showNotice, hideNotice } from "./modules/toasts.js";
+import { getConfig, getAll, getDraft, saveDraft } from "./modules/api.js";
+import { state, setData, rebuildMaps } from "./modules/state.js";
+import { computeWarnings as computeWarningsBase } from "./modules/warnings.js";
+import {
+  initRender,
+  fullRender as fullRenderMod,
+  openWarningsModal as openWarningsModalMod,
+  closeWarningsModal as closeWarningsModalMod,
+} from "./modules/render.js";
+import { initDragDrop } from "./modules/dragdrop.js";
+import { initUnlock } from "./modules/unlock.js";
+
+// State moved to modules/state.js (kept as a single shared object).
 let ADD_TERM_TOUCHED=false; // si el usuario tocó addYear/addSem, no auto-sobrescribir
 
-const $ = (id) => document.getElementById(id);
+const $ = byId;
 const on = (id, ev, fn) => $(id)?.addEventListener(ev, fn);
 
 // ---------- debug (colors/categories) ----------
@@ -142,63 +155,42 @@ const mk = (tag, cls, text) => {
 };
 const append = (p, ...kids) => { for (const k of kids) if (k) p.appendChild(k); return p; };
 
-let NOTICE_TO=null, NOTICE_FADE_TO=null;
-function showNotice(kind, text) {
-  const el = $("notice"), tx = $("noticeText");
-  if (!el || !tx) return;
-  if (NOTICE_TO) clearTimeout(NOTICE_TO);
-  if (NOTICE_FADE_TO) clearTimeout(NOTICE_FADE_TO);
-  el.classList.remove("soft", "hard", "info", "fading");
-  el.classList.add(kind);
-  tx.textContent = text;
-  el.style.display = "flex";
-  NOTICE_TO = setTimeout(() => {
-    el.classList.add("fading");
-    NOTICE_FADE_TO = setTimeout(hideNotice, 300);
-  }, 5000);
+let WARN_NOTICE_ID = null;
+function setWarnNotice(kind, text) {
+  try { if (WARN_NOTICE_ID) hideNotice(WARN_NOTICE_ID); } catch {}
+  WARN_NOTICE_ID = showNotice(kind, text);
 }
-function hideNotice(){
-  const el = $("notice");
-  if (NOTICE_TO) clearTimeout(NOTICE_TO);
-  if (NOTICE_FADE_TO) clearTimeout(NOTICE_FADE_TO);
-  NOTICE_TO = NOTICE_FADE_TO = null;
-  if (!el) return;
-  el.classList.remove("fading");
-  el.style.display = "none";
+function clearWarnNotice(){
+  try { if (WARN_NOTICE_ID) hideNotice(WARN_NOTICE_ID); } catch {}
+  WARN_NOTICE_ID = null;
 }
 
-async function fetchJSON(url, opts) {
-  const res = await fetch(url, opts);
-  const txt = await res.text();
-  let data = null;
-  try { data = JSON.parse(txt); } catch { data = txt; }
-  if (!res.ok) throw new Error((data && data.error) ? data.error : `HTTP ${res.status}`);
-  return data;
-}
 
 async function loadAll() {
-  [CONFIG, ALL, DRAFT] = await Promise.all([
-    fetchJSON("/api/config"),
-    fetchJSON("/api/all"),
-    fetchJSON("/api/draft"),
+  const [config, all, draft] = await Promise.all([
+    getConfig(),
+    getAll(),
+    getDraft(),
   ]);
+  setData({ config, all, draft });
+  rebuildMaps();
 
-  $("ver").textContent = ALL?.version || "";
-  $("base").textContent = ALL?.debug?.base_dir || "";
+  $("ver").textContent = state.all?.version || "";
+  $("base").textContent = state.all?.debug?.base_dir || "";
   const mc = $("maxCred");
-  if (mc) mc.textContent = CONFIG?.max_credits ?? "";
-  $("debugPre").textContent = JSON.stringify(ALL, null, 2);
+  if (mc) mc.textContent = state.config?.max_credits ?? "";
+  $("debugPre").textContent = JSON.stringify(state.all, null, 2);
 
-  dirtyDraft = false;
+  state.dirtyDraft = false;
   ADD_TERM_TOUCHED = false;
   updateDraftButtons();
 }
 
 function updateDraftButtons() {
   const saveBtn = $("saveBtn"), resetBtn = $("resetBtn"), addBtn = $("addTermBtn");
-  if (saveBtn) saveBtn.disabled = !draftMode || !dirtyDraft;
-  if (resetBtn) resetBtn.disabled = !draftMode;
-  if (addBtn) addBtn.disabled = !draftMode;
+  if (saveBtn) saveBtn.disabled = !state.draftMode || !state.dirtyDraft;
+  if (resetBtn) resetBtn.disabled = !state.draftMode;
+  if (addBtn) addBtn.disabled = !state.draftMode;
 }
 
 // ---------- prereqs parsing ----------
@@ -214,93 +206,12 @@ function normalizePrereqs(rawList) {
   return out;
 }
 
-// ---------- Unlock view (click) ----------
-const Unlock = {
-  adj: null, dom: new Map(), active: [], selId: null, selEl: null,
-
-  buildAdj(courses){
-    const norm = (x) => String(x || "").trim().toUpperCase();
-    const bySigla = new Map();
-    for (const c of (courses || [])) {
-      const s = norm(c?.sigla);
-      if (s) bySigla.set(s, c);
-    }
-    const tmp = new Map();
-    for (const c of (courses || [])) {
-      for (const pr of normalizePrereqs(c?.prerrequisitos)) {
-        if (pr.isCo) continue;
-        const req = bySigla.get(norm(pr?.code));
-        if (!req?.course_id || !c?.course_id) continue;
-        if (!tmp.has(req.course_id)) tmp.set(req.course_id, new Set());
-        tmp.get(req.course_id).add(c.course_id);
-      }
-    }
-    const adj = new Map();
-    for (const [k, s] of tmp.entries()) adj.set(k, Array.from(s));
-    this.adj = adj;
-  },
-
-  collect(startId){
-    const adj = this.adj;
-    if (!adj || !startId) return [];
-    const out = [], visited = new Set([startId]), q = [startId];
-    for (let i = 0; i < q.length; i++) {
-      for (const nid of (adj.get(q[i]) || [])) {
-        if (!nid || visited.has(nid)) continue;
-        visited.add(nid);
-        out.push(nid);
-        q.push(nid);
-      }
-    }
-    return out;
-  },
-
-  clearBlink(){
-    for (const el of this.active) { try { el.classList.remove("unlock-blink"); } catch {} }
-    this.active = [];
-  },
-  applyBlink(startId){
-    this.clearBlink();
-    for (const id of this.collect(startId)) {
-      const el = this.dom.get(id);
-      if (!el) continue;
-      el.classList.add("unlock-blink");
-      this.active.push(el);
-    }
-  },
-
-  clear(){
-    if (this.selEl) { try { this.selEl.classList.remove("unlock-selected"); } catch {} }
-    this.selId = null; this.selEl = null;
-    this.clearBlink();
-  },
-  toggle(courseId){
-    if (!courseId) return;
-    if (this.selId === courseId) return this.clear();
-
-    if (this.selEl) { try { this.selEl.classList.remove("unlock-selected"); } catch {} }
-    this.selId = courseId;
-    this.selEl = this.dom.get(courseId) || null;
-    if (this.selEl) this.selEl.classList.add("unlock-selected");
-    this.applyBlink(courseId);
-  },
-  reapply(){
-    if (!this.selId) return;
-    const el = this.dom.get(this.selId);
-    if (!el) { this.selEl = null; this.clearBlink(); return; }
-    if (this.selEl && this.selEl !== el) { try { this.selEl.classList.remove("unlock-selected"); } catch {} }
-    this.selEl = el;
-    el.classList.add("unlock-selected");
-    this.applyBlink(this.selId);
-  },
-};
-
 // ---------- draft terms + placements ----------
 function buildEffectiveTermsAndPlacements(allTerms, allCourses, draft) {
   const termsById = new Map();
   for (const t of (allTerms || [])) termsById.set(t.term_id, { ...t });
 
-  const termCode = (sem) => (CONFIG?.term_code_by_sem && (CONFIG.term_code_by_sem[String(sem)] || CONFIG.term_code_by_sem[sem])) || "?";
+  const termCode = (sem) => (state.config?.term_code_by_sem && (state.config.term_code_by_sem[String(sem)] || state.config.term_code_by_sem[sem])) || "?";
   const ensureTerm = (tid) => {
     if (!tid || termsById.has(tid)) return;
     const p = termParts(tid) || { year: 0, sem: 0 };
@@ -343,87 +254,22 @@ function buildEffectiveTermsAndPlacements(allTerms, allCourses, draft) {
 }
 
 // ---------- warnings (soft/hard) ----------
-function computeWarnings(terms, courses, placements, draft) {
-  const warnings = [];
-  const ignored = (draft && typeof draft.ignored_warnings === "object") ? draft.ignored_warnings : {};
+// Adapter notes:
+// - modules/warnings.js expects placements as a plain object (not Map).
+// - our frontmatter encodes correquisitos as "CODIGO(c)".
+//   We pass them as `corequisitos: [...]` (for proper co-req warnings) and strip them from `prerrequisitos`
+//   so they don't generate false "unknown prereq" warnings.
+function computeWarnings(terms, courses, placementsMap, draft, config) {
+  const placementsObj = Object.fromEntries(placementsMap?.entries?.() || []);
 
-  const termPos = new Map(terms.map((t, i) => [t.term_id, i]));
-  const courseBySigla = new Map();
+  const normalizedCourses = (courses || []).map((c) => {
+    const prs = normalizePrereqs(c?.prerrequisitos);
+    const onlyPrereq = prs.filter((p) => !p.isCo).map((p) => p.code);
+    const coreqs = prs.filter((p) => p.isCo).map((p) => p.code);
+    return { ...c, prerrequisitos: onlyPrereq, corequisitos: coreqs };
+  });
 
-  for (const c of (courses || [])) {
-    const s = String(c.sigla || "").trim();
-    if (s) courseBySigla.set(s, c);
-  }
-
-  // Credit warnings per term
-  const maxC = CONFIG?.max_credits ?? 65;
-  const softC = CONFIG?.soft_credits ?? 50;
-
-  const creditsByTerm = new Map();
-  for (const c of (courses || [])) {
-    const tid = placements.get(c.course_id) || c.term_id;
-    creditsByTerm.set(tid, (creditsByTerm.get(tid) || 0) + (Number(c.creditos) || 0));
-  }
-
-  for (const t of terms) {
-    const total = creditsByTerm.get(t.term_id) || 0;
-    if (total > maxC) warnings.push({
-      id:`credits:hard:${t.term_id}:${total}`, kind:"hard", scope:"term", term_id:t.term_id, course_id:null,
-      text:`Créditos en ${t.term_id}: ${total} (máx ${maxC}).`, sub:"Excede el máximo permitido por período.",
-    });
-    else if (total > softC) warnings.push({
-      id:`credits:soft:${t.term_id}:${total}`, kind:"soft", scope:"term", term_id:t.term_id, course_id:null,
-      text:`Créditos en ${t.term_id}: ${total} (sobre ${softC}).`, sub:"Carga alta (warning soft).",
-    });
-  }
-
-  // Prereq warnings per course
-  for (const c of (courses || [])) {
-    const tid = placements.get(c.course_id) || c.term_id;
-    const tpos = termPos.has(tid) ? termPos.get(tid) : 999999;
-
-    for (const pr of normalizePrereqs(c.prerrequisitos)) {
-      const reqCode = pr.code;
-      const reqCourse = courseBySigla.get(reqCode);
-      const baseId = `${pr.isCo ? "co" : "pre"}:${c.sigla}:${reqCode}:${tid}`;
-
-      if (!reqCourse) {
-        warnings.push({
-          id:`missing:${baseId}`, kind:"hard", scope:"course", term_id:tid, course_id:c.course_id,
-          text:`${c.sigla}: No existe requisito ${reqCode}.`, sub: pr.isCo ? "Correquisito faltante." : "Prerrequisito faltante.",
-          meta:{ reqCode, isCo: pr.isCo },
-        });
-        continue;
-      }
-
-      if (reqCourse.aprobado === true) continue;
-
-      const reqTid = placements.get(reqCourse.course_id) || reqCourse.term_id;
-      const reqPos = termPos.has(reqTid) ? termPos.get(reqTid) : 999999;
-      const okTemporal = pr.isCo ? (reqPos <= tpos) : (reqPos < tpos);
-
-      if (!okTemporal) {
-        warnings.push({
-          id:`temporal:${baseId}`, kind:"hard", scope:"course", term_id:tid, course_id:c.course_id,
-          text:`${c.sigla}: ${pr.isCo ? "Correquisito" : "Prerrequisito"} ${reqCode} está mal ubicado (${reqTid}).`,
-          sub: pr.isCo ? "Debe estar en el mismo período o antes." : "Debe estar en un período anterior.",
-          meta:{ reqCode, isCo: pr.isCo, reqTid },
-        });
-        continue;
-      }
-
-      if (pr.isCo) continue; // correquisito: no soft
-
-      warnings.push({
-        id:`notapproved:${baseId}`, kind:"soft", scope:"course", term_id:tid, course_id:c.course_id,
-        text:`${c.sigla}: Requisito ${reqCode} no está aprobado.`, sub:"No bloquea, pero es warning soft.",
-        meta:{ reqCode, isCo: pr.isCo, reqTid },
-      });
-    }
-  }
-
-  for (const w of warnings) w.ignored = !!ignored[w.id];
-  return warnings;
+  return computeWarningsBase(terms, normalizedCourses, placementsObj, draft, config) || [];
 }
 
 // ---------- render ----------
@@ -473,9 +319,6 @@ function render(terms, courses, placements, warnings) {
 
   const grid = $("grid");
   grid.innerHTML = "";
-  Unlock.dom = new Map();
-  Unlock.clearBlink();
-  grid.onclick = (ev) => { if (!ev.target.closest(".course")) Unlock.clear(); };
 
   for (const t of terms) {
     const col = mk("div", "term");
@@ -486,15 +329,15 @@ function render(terms, courses, placements, warnings) {
     title.innerHTML = `<div class="term-title">${t.term_id}</div><div class="term-sub">${t.code}</div>`;
 
     const total = creditsByTerm.get(t.term_id) || 0;
-    const maxC = CONFIG?.max_credits ?? 65;
-    const softC = CONFIG?.soft_credits ?? 50;
+    const maxC = state.config?.max_credits ?? 65;
+    const softC = state.config?.soft_credits ?? 50;
     const cred = mk("div", "term-credits", `${total} cr`);
     if (total > maxC) cred.classList.add("bad");
     else if (total > softC) cred.classList.add("warn");
 
     append(th, title, cred);
 
-    if (draftMode && t.isCustom && !(byTerm.get(t.term_id) || []).length) {
+    if (state.draftMode && t.isCustom && !(byTerm.get(t.term_id) || []).length) {
       const del = mk("button", "term-del", "✕");
       del.type = "button";
       del.title = "Eliminar período vacío";
@@ -502,14 +345,14 @@ function render(terms, courses, placements, warnings) {
         ev.stopPropagation();
         if (!confirm(`¿Eliminar el período vacío ${t.term_id}?`)) return;
         const tid = t.term_id;
-        DRAFT.custom_terms = (Array.isArray(DRAFT.custom_terms) ? DRAFT.custom_terms : []).filter(x => String(x?.term_id || "") !== tid);
-        DRAFT.term_order = (Array.isArray(DRAFT.term_order) ? DRAFT.term_order : []).filter(x => String(x || "") !== tid);
-        if (DRAFT.placements && typeof DRAFT.placements === "object") {
-          for (const [cid, pt] of Object.entries(DRAFT.placements)) if (String(pt) === tid) delete DRAFT.placements[cid];
+        state.draft.custom_terms = (Array.isArray(state.draft.custom_terms) ? state.draft.custom_terms : []).filter(x => String(x?.term_id || "") !== tid);
+        state.draft.term_order = (Array.isArray(state.draft.term_order) ? state.draft.term_order : []).filter(x => String(x || "") !== tid);
+        if (state.draft.placements && typeof state.draft.placements === "object") {
+          for (const [cid, pt] of Object.entries(state.draft.placements)) if (String(pt) === tid) delete state.draft.placements[cid];
         }
-        dirtyDraft = true;
+        state.dirtyDraft = true;
         updateDraftButtons();
-        fullRender();
+    fullRenderMod();
         showNotice("info", `Período eliminado: ${tid}.`);
       });
       th.appendChild(del);
@@ -532,12 +375,8 @@ function render(terms, courses, placements, warnings) {
       const cat = getCatInfo(c);
       if (cat?.cls) card.classList.add(cat.cls);
 
-      card.draggable = !!draftMode;
+      card.draggable = !!state.draftMode;
       card.dataset.courseId = c.course_id;
-
-      // unlock click
-      Unlock.dom.set(c.course_id, card);
-      card.addEventListener("click", (ev) => { ev.stopPropagation(); Unlock.toggle(c.course_id); });
 
       const isApproved = (c.aprobado === true);
       if (isApproved) card.classList.add("aprobado");
@@ -563,13 +402,6 @@ function render(terms, courses, placements, warnings) {
         })() : null,
       );
 
-      if (draftMode) {
-        card.addEventListener("dragstart", (ev) => {
-          ev.dataTransfer.setData("text/plain", c.course_id);
-          ev.dataTransfer.effectAllowed = "move";
-        });
-      }
-
       list.appendChild(card);
 
       if (dbg && dbgLeft > 0) {
@@ -582,8 +414,8 @@ function render(terms, courses, placements, warnings) {
       }
     }
 
-    // "+" (solo draftMode): botón visual al final del período
-    if (draftMode) {
+    // "+" (solo state.draftMode): botón visual al final del período
+    if (state.draftMode) {
       const add = mk("button", "course course-add", "+");
       add.type = "button";
       add.title = `Agregar curso en ${t.term_id}`;
@@ -591,27 +423,6 @@ function render(terms, courses, placements, warnings) {
       add.draggable = false;
       add.addEventListener("click", (ev) => { ev.stopPropagation(); });
       list.appendChild(add);
-    }
-
-    if (draftMode) {
-      list.addEventListener("dragover", (ev) => {
-        ev.preventDefault();
-        list.classList.add("dragover");
-        ev.dataTransfer.dropEffect = "move";
-      });
-      list.addEventListener("dragleave", () => list.classList.remove("dragover"));
-      list.addEventListener("drop", (ev) => {
-        ev.preventDefault();
-        list.classList.remove("dragover");
-        const cid = ev.dataTransfer.getData("text/plain");
-        const tid = list.dataset.termId;
-        if (!cid || !tid) return;
-        DRAFT.placements = DRAFT.placements || {};
-        DRAFT.placements[cid] = tid;
-        dirtyDraft = true;
-        updateDraftButtons();
-        fullRender();
-      });
     }
 
     append(col, th, list);
@@ -625,7 +436,6 @@ function render(terms, courses, placements, warnings) {
     console.log("[DBG colors] Tip: si varColor está bien pero no se ve la franja, revisa si algún border-left de .aprobado está tapando el lado izquierdo.");
   }
 
-  Unlock.reapply();
   renderWarningsModal(activeWarnings);
 }
 
@@ -653,12 +463,12 @@ function renderWarningsModal(activeWarnings) {
     const btn = mk("button", null, w.ignored ? "Des-ignorar" : "Ignorar");
     btn.type = "button";
     btn.addEventListener("click", () => {
-      DRAFT.ignored_warnings = DRAFT.ignored_warnings || {};
-      if (w.ignored) delete DRAFT.ignored_warnings[w.id];
-      else DRAFT.ignored_warnings[w.id] = true;
-      dirtyDraft = true;
+      state.draft.ignored_warnings = state.draft.ignored_warnings || {};
+      if (w.ignored) delete state.draft.ignored_warnings[w.id];
+      else state.draft.ignored_warnings[w.id] = true;
+      state.dirtyDraft = true;
       updateDraftButtons();
-      fullRender();
+    fullRenderMod();
     });
     actions.appendChild(btn);
 
@@ -671,13 +481,13 @@ const openWarningsModal = () => { const el = $("warningsModal"); if (el) el.styl
 const closeWarningsModal = () => { const el = $("warningsModal"); if (el) el.style.display = "none"; };
 
 function fullRender() {
-  if (!ALL || !CONFIG || !DRAFT) return;
+  if (!state.all || !state.config || !state.draft) return;
 
-  const { terms, placements } = buildEffectiveTermsAndPlacements(ALL.terms, ALL.courses, DRAFT);
-  Unlock.buildAdj(ALL.courses);
-  setAddTermDefaultIfUntouched(terms, ALL.courses, placements);
+  const { terms, placements } = buildEffectiveTermsAndPlacements(state.all.terms, state.all.courses, state.draft);
 
-  const warnings = computeWarnings(terms, ALL.courses, placements, DRAFT);
+  setAddTermDefaultIfUntouched(terms, state.all.courses, placements);
+
+  const warnings = computeWarnings(terms, state.all.courses, placements, state.draft, state.config);
 
   // show first (non-ignored) hard, else soft (banner)
   const showIgnored = !!$("showIgnored")?.checked;
@@ -685,30 +495,26 @@ function fullRender() {
   const firstHard = visibleWarnings.find(w => w.kind === "hard");
   const firstSoft = visibleWarnings.find(w => w.kind === "soft");
 
-  if (firstHard) showNotice("hard", firstHard.text);
-  else if (firstSoft) showNotice("soft", firstSoft.text);
-  else hideNotice();
+  if (firstHard) setWarnNotice("hard", firstHard.text);
+  else if (firstSoft) setWarnNotice("soft", firstSoft.text);
+  else clearWarnNotice();
 
-  render(terms, ALL.courses, placements, warnings);
+  render(terms, state.all.courses, placements, warnings);
 }
 
 async function saveDraftToServer() {
-  await fetchJSON("/api/draft", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(DRAFT || {}, null, 2),
-  });
-  dirtyDraft = false;
+  await saveDraft(state.draft || {});
+  state.dirtyDraft = false;
   updateDraftButtons();
   showNotice("info", "Borrador guardado.");
 }
 
 async function resetDraftFromServer() {
-  DRAFT = await fetchJSON("/api/draft");
+  state.draft = await getDraft();
   ADD_TERM_TOUCHED = false;
-  dirtyDraft = false;
+  state.dirtyDraft = false;
   updateDraftButtons();
-  fullRender();
+  fullRenderMod();
   showNotice("info", "Borrador reseteado (se recargó desde disco)." );
 }
 
@@ -725,13 +531,13 @@ const parseSemValue = (raw) => {
 };
 
 function initHandlers() {
-  on("noticeClose", "click", hideNotice);
+  on("noticeClose", "click", clearWarnNotice);
 
   on("reloadBtn", "click", async () => {
     try {
       await loadAll();
       renderLegend();
-      fullRender();
+      fullRenderMod();
       showNotice("info", "Recargado.");
     } catch (e) {
       showNotice("hard", String(e.message || e));
@@ -751,24 +557,24 @@ function initHandlers() {
   on("themeToggle", "change", () => saveTheme($("themeToggle")?.checked ? "dark" : "light"));
 
   on("draftToggle", "change", () => {
-    draftMode = !!$("draftToggle")?.checked;
+    state.draftMode = !!$("draftToggle")?.checked;
     updateDraftButtons();
     fullRender();
   });
 
   // Sync inicial: si el checkbox viene marcado al cargar (estado persistido por el browser)
-  draftMode = !!$("draftToggle")?.checked;
+  state.draftMode = !!$("draftToggle")?.checked;
   updateDraftButtons();
 
-  on("filter", "input", fullRender);
-  on("warningsBtn", "click", openWarningsModal);
-  on("warningsClose", "click", closeWarningsModal);
+  on("filter", "input", fullRenderMod);
+  on("warningsBtn", "click", openWarningsModalMod);
+  on("warningsClose", "click", closeWarningsModalMod);
 
   on("warningsModal", "click", (ev) => {
-    if (ev.target === $("warningsModal")) closeWarningsModal();
+    if (ev.target === $("warningsModal")) closeWarningsModalMod();
   });
 
-  on("showIgnored", "change", fullRender);
+  on("showIgnored", "change", fullRenderMod);
 
   // Si el usuario toca los controles de "Agregar período", no volver a auto-setear defaults.
   for (const ev of ["input", "change"]) {
@@ -778,7 +584,7 @@ function initHandlers() {
 
   on("addTermBtn", "click", (ev) => {
     try { ev.preventDefault(); } catch {}
-    if (!draftMode) return;
+    if (!state.draftMode) return;
 
     const y = parseInt($("addYear")?.value || "0", 10);
     const s = parseSemValue($("addSem")?.value);
@@ -787,11 +593,11 @@ function initHandlers() {
     if (![0,1,2].includes(s)) return showNotice("hard", "Sem inválido (V/I/P o 0/1/2)." );
 
     const tid = `${y}-${s}`;
-    DRAFT.custom_terms = Array.isArray(DRAFT.custom_terms) ? DRAFT.custom_terms : [];
-    if (!DRAFT.custom_terms.some(t => t && t.term_id === tid)) DRAFT.custom_terms.push({ term_id: tid });
+    state.draft.custom_terms = Array.isArray(state.draft.custom_terms) ? state.draft.custom_terms : [];
+    if (!state.draft.custom_terms.some(t => t && t.term_id === tid)) state.draft.custom_terms.push({ term_id: tid });
 
-    DRAFT.term_order = Array.isArray(DRAFT.term_order) ? DRAFT.term_order : [];
-    if (!DRAFT.term_order.includes(tid)) DRAFT.term_order.push(tid);
+    state.draft.term_order = Array.isArray(state.draft.term_order) ? state.draft.term_order : [];
+    if (!state.draft.term_order.includes(tid)) state.draft.term_order.push(tid);
 
     // Auto-avanzar selector a siguiente período NO-verano
     const base = termParts(tid);
@@ -803,9 +609,9 @@ function initHandlers() {
       ADD_TERM_TOUCHED = true;
     }
 
-    dirtyDraft = true;
+    state.dirtyDraft = true;
     updateDraftButtons();
-    fullRender();
+    fullRenderMod();
     showNotice("info", `Período agregado: ${tid}.`);
   });
 }
@@ -813,13 +619,45 @@ function initHandlers() {
 async function main() {
   try {
     initHandlers();
+    initRender({ computeWarnings });
+
+    // Drag & drop (draft only). Saving remains manual via the Save button.
+    initDragDrop({
+      update: () => {
+        updateDraftButtons();
+        fullRenderMod();
+      },
+      saveDraft: async (_draft) => {},
+      notify: null,
+    });
+
+    // Unlock view (click a course to highlight + blink unlocks)
+    initUnlock({ gridId: "grid", enabled: true });
+
     loadTheme();
     await loadAll();
     renderLegend();
-    fullRender();
+    fullRenderMod();
   } catch (e) {
     showNotice("hard", String(e.message || e));
   }
 }
+
+// --- module compatibility ---
+// index.html now loads this file as an ES Module (type="module").
+// If the HTML ever uses inline handlers (onclick="..."), module-scope symbols won't be global.
+// Expose a tiny, safe surface on window for debugging / compatibility.
+try {
+  window.MALLA = window.MALLA || {};
+  Object.assign(window.MALLA, {
+    openWarningsModal,
+    closeWarningsModal,
+    fullRender,
+    showNotice,
+    hideNotice,
+    saveDraftToServer,
+    resetDraftFromServer,
+  });
+} catch {}
 
 main();
