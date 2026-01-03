@@ -822,4 +822,21 @@ async function main() {
   }
 }
 
+// --- module compatibility ---
+// index.html now loads this file as an ES Module (type="module").
+// If the HTML ever uses inline handlers (onclick="..."), module-scope symbols won't be global.
+// Expose a tiny, safe surface on window for debugging / compatibility.
+try {
+  window.MALLA = window.MALLA || {};
+  Object.assign(window.MALLA, {
+    openWarningsModal,
+    closeWarningsModal,
+    fullRender,
+    showNotice,
+    hideNotice,
+    saveDraftToServer,
+    resetDraftFromServer,
+  });
+} catch {}
+
 main();
