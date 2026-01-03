@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "2025-1/,Cursos/MAT1630.md",
+                "file": "2025-2/,Cursos/IEE1533.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "MAT1630"
+              "title": "IEE1533"
             }
           }
         ]
@@ -94,7 +94,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "2025-1/,Cursos/MAT1630.md",
+                "file": "2025-2/,Cursos/IEE1533.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,7 +104,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks for MAT1630"
+              "title": "Backlinks for IEE1533"
             }
           },
           {
@@ -113,12 +113,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "2025-1/,Cursos/MAT1630.md",
+                "file": "2025-2/,Cursos/IEE1533.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links from MAT1630"
+              "title": "Outgoing links from IEE1533"
             }
           },
           {
@@ -156,13 +156,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "2025-1/,Cursos/MAT1630.md",
+                "file": "2025-2/,Cursos/IEE1533.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline of MAT1630"
+              "title": "Outline of IEE1533"
             }
           }
         ]
@@ -185,6 +185,7 @@
   },
   "active": "cceed0accc60e9dc",
   "lastOpenFiles": [
+    "2025-1/,Cursos/MAT1630.md",
     "mallas_app/modules/warnings.js",
     "mallas_app/modules/state.js",
     "mallas_app/modules/api.js",
@@ -195,7 +196,6 @@
     "malla_app.py",
     "mallas_app/app.js",
     "mallas_app/styles.css",
-    "mallas_app/index.html",
-    "mallas_app/logic.js"
+    "mallas_app/index.html"
   ]
 }

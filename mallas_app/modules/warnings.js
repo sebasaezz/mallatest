@@ -176,6 +176,61 @@ export function computeWarnings(terms, courses, placements, draft, config) {
     }
   }
 
+  // --- Co-requisites check ---
+  // Expect each course to optionally provide: corequisitos: ["SIGLA", ...]
+  // Rule:
+  // - OK if the co-requisite is approved, or scheduled in the same term.
+  // - HARD warning if scheduled in a different term or not scheduled.
+  // - SOFT warning if the co-requisite code is unknown.
+  for (const c of Array.isArray(courses) ? courses : []) {
+    if (!c) continue;
+
+    // Skip checks for approved courses.
+    if (c.aprobado === true) continue;
+
+    const cid = c.course_id != null ? String(c.course_id) : "";
+    const sigla = c.sigla != null ? String(c.sigla) : "";
+    const tid = termIdOfCourse(c, placements);
+
+    const coreqs = Array.isArray(c.corequisitos)
+      ? c.corequisitos.filter(Boolean).map(String)
+      : [];
+
+    for (const q of coreqs) {
+      const qc = bySigla.get(q);
+      if (!qc) {
+        pushWarn("soft", {
+          id: `coreq:unknown:${cid}:${q}`,
+          scope: "course",
+          course_id: cid,
+          sigla,
+          term_id: tid,
+          coreq: q,
+          text: `${sigla || "Curso"} tiene correquisito desconocido: ${q}.`,
+        });
+        continue;
+      }
+
+      if (qc.aprobado === true) continue;
+
+      const qtid = termIdOfCourse(qc, placements);
+
+      // Must be in the same term (or both null, which we treat as missing placement).
+      const same = tid != null && qtid != null && String(tid) === String(qtid);
+      if (same) continue;
+
+      pushWarn("hard", {
+        id: `coreq:missing:${cid}:${q}:${tid || ""}`,
+        scope: "course",
+        course_id: cid,
+        sigla,
+        term_id: tid,
+        coreq: q,
+        text: `${sigla || "Curso"} requiere correquisito ${q} en el mismo semestre.`,
+      });
+    }
+  }
+
   // Sort: stable & predictable.
   warnings.sort((a, b) => {
     // Active warnings first, ignored later.
