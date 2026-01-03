@@ -326,7 +326,7 @@ function buildEffectiveTermsAndPlacements(allTerms, allCourses, draft) {
 }
 
 // ---------- warnings (soft/hard) ----------
-function computeWarnings(terms, courses, placements, draft) {
+function computeWarnings(terms, courses, placements, draft, config) {
   const warnings = [];
   const ignored = (draft && typeof draft.ignored_warnings === "object") ? draft.ignored_warnings : {};
 
@@ -339,8 +339,8 @@ function computeWarnings(terms, courses, placements, draft) {
   }
 
   // Credit warnings per term
-  const maxC = state.config?.max_credits ?? 65;
-  const softC = state.config?.soft_credits ?? 50;
+  const maxC = config?.max_credits ?? 65;
+  const softC = config?.soft_credits ?? 50;
 
   const creditsByTerm = new Map();
   for (const c of (courses || [])) {
@@ -660,7 +660,7 @@ function fullRender() {
   Unlock.buildAdj(state.all.courses);
   setAddTermDefaultIfUntouched(terms, state.all.courses, placements);
 
-  const warnings = computeWarnings(terms, state.all.courses, placements, state.draft);
+  const warnings = computeWarnings(terms, state.all.courses, placements, state.draft, state.config);
 
   // show first (non-ignored) hard, else soft (banner)
   const showIgnored = !!$("showIgnored")?.checked;
