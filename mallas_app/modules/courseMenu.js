@@ -71,6 +71,65 @@ function normalizeOffered(course) {
   return out;
 }
 
+function _isTransparentColor(c) {
+  const s = String(c || "").trim().toLowerCase();
+  if (!s) return true;
+  if (s === "transparent") return true;
+  if (s === "rgba(0, 0, 0, 0)" || s === "rgba(0,0,0,0)") return true;
+  return false;
+}
+
+function _parseRgb(c) {
+  const s = String(c || "").trim().toLowerCase();
+  if (!s.startsWith("rgb")) return null;
+  const i0 = s.indexOf("(");
+  const i1 = s.lastIndexOf(")");
+  if (i0 < 0 || i1 < 0 || i1 <= i0) return null;
+  const inside = s.slice(i0 + 1, i1);
+  const parts = inside.split(",").map((p) => p.trim());
+  if (parts.length < 3) return null;
+  const r = Number(parts[0]);
+  const g = Number(parts[1]);
+  const b = Number(parts[2]);
+  const a = parts.length >= 4 ? Number(parts[3]) : 1;
+  if (![r, g, b, a].every((n) => Number.isFinite(n))) return null;
+  return { r, g, b, a };
+}
+
+function _isNeutralRgb(c) {
+  const rgb = _parseRgb(c);
+  if (!rgb) return false;
+  const { r, g, b, a } = rgb;
+  if (a === 0) return true;
+  const hi = r > 245 && g > 245 && b > 245;
+  const lo = r < 15 && g < 15 && b < 15;
+  return hi || lo;
+}
+
+function _pickAccentFromSourceEl(sourceEl) {
+  if (!sourceEl || !window.getComputedStyle) return null;
+  const cs = window.getComputedStyle(sourceEl);
+
+  // Prefer explicit CSS vars if renderer sets them.
+  const vars = ["--cat-color", "--course-color", "--accent", "--varColor"];
+  for (const v of vars) {
+    const val = String(cs.getPropertyValue(v) || "").trim();
+    if (val && !_isTransparentColor(val) && !_isNeutralRgb(val)) return val;
+  }
+
+  // Background is often the category color; skip if neutral.
+  const bg = cs.backgroundColor;
+  if (bg && !_isTransparentColor(bg) && !_isNeutralRgb(bg)) return bg;
+
+  // Fallback to borders/outline/text.
+  const candidates = [cs.borderLeftColor, cs.borderTopColor, cs.outlineColor, cs.color];
+  for (const c of candidates) {
+    if (c && !_isTransparentColor(c) && !_isNeutralRgb(c)) return c;
+  }
+
+  return null;
+}
+
 function ensureDOM() {
   if (_ov) return;
 
@@ -99,6 +158,7 @@ function ensureDOM() {
 
 function renderMenu({ course, isDraftMode }) {
   const fm = course?.frontmatter || {};
+  _panel?.classList?.add?.("course-menu");
   const sigla = String(course?.sigla ?? fm?.sigla ?? "").trim();
   const nombre = String(course?.nombre ?? fm?.nombre ?? "").trim();
   const creditos = Number(course?.creditos ?? fm?.creditos ?? fm?.créditos ?? 0) || 0;
@@ -112,13 +172,20 @@ function renderMenu({ course, isDraftMode }) {
   const tempKind = String(course?.temp_kind || "").trim();
   const src = isTemp ? (tempKind ? `Temporal (${tempKind})` : "Temporal") : "En disco";
 
+  if (_panel) {
+    _panel.dataset.src = src;
+    _panel.dataset.isTemp = isTemp ? "1" : "0";
+    _panel.dataset.tempKind = tempKind || "";
+    _panel.dataset.concentracion = concentracion;
+  }
+
   _panel.innerHTML = "";
 
   // Header
   const h = el("div", "modal-header");
   const title = el("div", "modal-title", sigla ? `${sigla}` : "Curso");
   const right = el("div", "modal-controls");
-  const badge = el("div", "tag", src);
+  const badge = el("div", "tag menu-accent", src);
   const closeBtn = el("button", "modal-close", "✕");
   closeBtn.type = "button";
   closeBtn.title = "Cerrar";
@@ -137,7 +204,7 @@ function renderMenu({ course, isDraftMode }) {
   metaMain.appendChild(el("div", "w-text", `Créditos: ${creditos}`));
   metaMain.appendChild(el("div", "w-sub", `Concentración: ${concentracion}`));
   metaMain.appendChild(el("div", "w-sub", `Ofrecido en: ${offered.length ? offered.join(", ") : "(sin info)"}`));
-  meta.appendChild(el("div", "w-dot soft"));
+  meta.appendChild(el("div", "w-dot menu-accent"));
   meta.appendChild(metaMain);
   body.appendChild(meta);
 
@@ -145,7 +212,7 @@ function renderMenu({ course, isDraftMode }) {
   const reqMain = el("div", "w-main");
   reqMain.appendChild(el("div", "w-text", `Prerrequisitos: ${prereq.length ? prereq.join(", ") : "(ninguno)"}`));
   reqMain.appendChild(el("div", "w-sub", `Correquisitos: ${coreq.length ? coreq.join(", ") : "(ninguno)"}`));
-  reqBlock.appendChild(el("div", "w-dot soft"));
+  reqBlock.appendChild(el("div", "w-dot menu-accent"));
   reqBlock.appendChild(reqMain);
   body.appendChild(reqBlock);
 
@@ -170,9 +237,15 @@ function renderMenu({ course, isDraftMode }) {
   _panel.appendChild(foot);
 }
 
-export function openCourseMenu({ course, isDraftMode = false } = {}) {
+export function openCourseMenu({ course, isDraftMode = false, sourceEl } = {}) {
   ensureDOM();
   if (!course) return;
+  // Pick accent color from the rendered course element (best source of truth).
+  const accent = _pickAccentFromSourceEl(sourceEl);
+  if (_panel) {
+    _panel.style.setProperty("--menu-accent", accent || "var(--info-border)");
+  }
+
   renderMenu({ course, isDraftMode: !!isDraftMode });
   _ov.style.display = "block"; // CSS upgrades to flex overlay
 }
