@@ -61,3 +61,12 @@ export function saveDraft(draft) {
     body: JSON.stringify(draft ?? {}),
   });
 }
+
+/**
+ * Hard reset draft on disk (POST /api/draft/reset).
+ * Deletes malla_draft.json if present.
+ * Frontend MUST confirm with the user before calling this.
+ */
+export function hardResetDraft() {
+  return fetchJSON("/api/draft/reset", { method: "POST" });
+}
