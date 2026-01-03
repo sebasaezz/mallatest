@@ -8,7 +8,7 @@ import { byId } from "./modules/utils.js";
 import { showNotice, hideNotice } from "./modules/toasts.js";
 import { getConfig, getAll, getDraft, saveDraft } from "./modules/api.js";
 import { state, setData, rebuildMaps } from "./modules/state.js";
-import { computeWarnings, setLegacyComputeWarnings } from "./modules/warnings.js";
+import { computeWarnings as computeWarningsBase } from "./modules/warnings.js";
 
 // State moved to modules/state.js (kept as a single shared object).
 let ADD_TERM_TOUCHED=false; // si el usuario tocó addYear/addSem, no auto-sobrescribir
@@ -327,92 +327,21 @@ function buildEffectiveTermsAndPlacements(allTerms, allCourses, draft) {
 }
 
 // ---------- warnings (soft/hard) ----------
-function computeWarningsLocal(terms, courses, placements, draft, config) {
-  const warnings = [];
-  const ignored = (draft && typeof draft.ignored_warnings === "object") ? draft.ignored_warnings : {};
+// Adapter notes:
+// - modules/warnings.js expects placements as a plain object (not Map).
+// - our frontmatter encodes correquisitos as "CODIGO(c)"; the warning module treats prereqs as plain codes.
+//   We strip correquisitos from the list passed to the warning module (so they don't generate false "unknown prereq" warnings).
+function computeWarnings(terms, courses, placementsMap, draft, config) {
+  const placementsObj = Object.fromEntries(placementsMap?.entries?.() || []);
 
-  const termPos = new Map(terms.map((t, i) => [t.term_id, i]));
-  const courseBySigla = new Map();
+  const normalizedCourses = (courses || []).map((c) => {
+    const prs = normalizePrereqs(c?.prerrequisitos);
+    const onlyPrereq = prs.filter((p) => !p.isCo).map((p) => p.code);
+    return { ...c, prerrequisitos: onlyPrereq };
+  });
 
-  for (const c of (courses || [])) {
-    const s = String(c.sigla || "").trim();
-    if (s) courseBySigla.set(s, c);
-  }
-
-  // Credit warnings per term
-  const maxC = config?.max_credits ?? 65;
-  const softC = config?.soft_credits ?? 50;
-
-  const creditsByTerm = new Map();
-  for (const c of (courses || [])) {
-    const tid = placements.get(c.course_id) || c.term_id;
-    creditsByTerm.set(tid, (creditsByTerm.get(tid) || 0) + (Number(c.creditos) || 0));
-  }
-
-  for (const t of terms) {
-    const total = creditsByTerm.get(t.term_id) || 0;
-    if (total > maxC) warnings.push({
-      id:`credits:hard:${t.term_id}:${total}`, kind:"hard", scope:"term", term_id:t.term_id, course_id:null,
-      text:`Créditos en ${t.term_id}: ${total} (máx ${maxC}).`, sub:"Excede el máximo permitido por período.",
-    });
-    else if (total > softC) warnings.push({
-      id:`credits:soft:${t.term_id}:${total}`, kind:"soft", scope:"term", term_id:t.term_id, course_id:null,
-      text:`Créditos en ${t.term_id}: ${total} (sobre ${softC}).`, sub:"Carga alta (warning soft).",
-    });
-  }
-
-  // Prereq warnings per course
-  for (const c of (courses || [])) {
-    const tid = placements.get(c.course_id) || c.term_id;
-    const tpos = termPos.has(tid) ? termPos.get(tid) : 999999;
-
-    for (const pr of normalizePrereqs(c.prerrequisitos)) {
-      const reqCode = pr.code;
-      const reqCourse = courseBySigla.get(reqCode);
-      const baseId = `${pr.isCo ? "co" : "pre"}:${c.sigla}:${reqCode}:${tid}`;
-
-      if (!reqCourse) {
-        warnings.push({
-          id:`missing:${baseId}`, kind:"hard", scope:"course", term_id:tid, course_id:c.course_id,
-          text:`${c.sigla}: No existe requisito ${reqCode}.`, sub: pr.isCo ? "Correquisito faltante." : "Prerrequisito faltante.",
-          meta:{ reqCode, isCo: pr.isCo },
-        });
-        continue;
-      }
-
-      if (reqCourse.aprobado === true) continue;
-
-      const reqTid = placements.get(reqCourse.course_id) || reqCourse.term_id;
-      const reqPos = termPos.has(reqTid) ? termPos.get(reqTid) : 999999;
-      const okTemporal = pr.isCo ? (reqPos <= tpos) : (reqPos < tpos);
-
-      if (!okTemporal) {
-        warnings.push({
-          id:`temporal:${baseId}`, kind:"hard", scope:"course", term_id:tid, course_id:c.course_id,
-          text:`${c.sigla}: ${pr.isCo ? "Correquisito" : "Prerrequisito"} ${reqCode} está mal ubicado (${reqTid}).`,
-          sub: pr.isCo ? "Debe estar en el mismo período o antes." : "Debe estar en un período anterior.",
-          meta:{ reqCode, isCo: pr.isCo, reqTid },
-        });
-        continue;
-      }
-
-      if (pr.isCo) continue; // correquisito: no soft
-
-      warnings.push({
-        id:`notapproved:${baseId}`, kind:"soft", scope:"course", term_id:tid, course_id:c.course_id,
-        text:`${c.sigla}: Requisito ${reqCode} no está aprobado.`, sub:"No bloquea, pero es warning soft.",
-        meta:{ reqCode, isCo: pr.isCo, reqTid },
-      });
-    }
-  }
-
-  for (const w of warnings) w.ignored = !!ignored[w.id];
-  return warnings;
+  return computeWarningsBase(terms, normalizedCourses, placementsObj, draft, config) || [];
 }
-
-// Wire legacy warning logic into the module so we can delete this block later.
-setLegacyComputeWarnings(computeWarningsLocal);
-
 
 // ---------- render ----------
 function render(terms, courses, placements, warnings) {
