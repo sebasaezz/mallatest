@@ -1,42 +1,54 @@
-// Warning computation module.
+// Warning computation module (canonical).
 //
-// NOTE: This file is created as part of the modularization plan.
-// In the next step (edit app.js), we will move the *existing* warning logic here
-// without changing behavior.
+// This module is the single source of truth for warning generation.
+// It returns an array of warning objects that the UI can render and/or ignore.
 //
-// Design constraints (must match existing app behavior):
+// Constraints (must match app behavior):
 // - Warnings never block actions.
 // - Warnings do not change course background (only outline/border).
 // - Mutual coreqs in the same semester do NOT generate warnings.
 // - There are "soft" (yellow) and "hard" (red) warnings.
-// - Ignored warnings are persisted in draft (ignored_warnings).
+// - Ignored warnings are persisted in draft (draft.ignored_warnings).
 
-// During modularization, we may need to preserve the *exact* legacy warning ids/shape.
-// app.js can inject the current implementation here, then we can later delete it from app.js.
-let _legacyComputeWarnings = null;
-
-/** Inject legacy computeWarnings implementation (behavior/ids preserved). */
-export function setLegacyComputeWarnings(fn) {
-  _legacyComputeWarnings = typeof fn === "function" ? fn : null;
+function termIdOfCourse(course, placements) {
+  const cid = course?.course_id != null ? String(course.course_id) : null;
+  if (cid && placements && Object.prototype.hasOwnProperty.call(placements, cid)) {
+    const tid = placements[cid];
+    return tid != null ? String(tid) : null;
+  }
+  return course?.term_id != null ? String(course.term_id) : null;
 }
 
-/**
- * Compute warnings.
- *
- * IMPORTANT: Implementation will be moved from app.js verbatim (behavior-preserving)
- * on the next "edit app.js" step.
- */
-function computeWarningsFallback(terms, courses, placements, draft, config) {
-  const ignored = (draft && typeof draft.ignored_warnings === "object" && draft.ignored_warnings) || {};
-
-  const maxC = config?.max_credits ?? 65;
-  const softC = config?.soft_credits ?? 50;
-
-  // Build term index for ordering.
+function buildTermIndex(terms) {
   const termIndex = new Map();
   (Array.isArray(terms) ? terms : []).forEach((t, i) => {
     if (t && t.term_id != null) termIndex.set(String(t.term_id), i);
   });
+  return termIndex;
+}
+
+function termIdx(termIndex, tid) {
+  if (tid == null) return Infinity;
+  const k = String(tid);
+  return termIndex.has(k) ? termIndex.get(k) : Infinity;
+}
+
+function kindRank(k) {
+  return k === "hard" ? 0 : 1;
+}
+
+/**
+ * Compute warnings (canonical).
+ * @returns {Array<{id:string, kind:"soft"|"hard", ignored:boolean, text:string, scope?:"term"|"course", term_id?:string, course_id?:string, sigla?:string, prereq?:string, credits?:number}>}
+ */
+export function computeWarnings(terms, courses, placements, draft, config) {
+  const ignored =
+    (draft && typeof draft.ignored_warnings === "object" && draft.ignored_warnings) || {};
+
+  const maxC = config?.max_credits ?? 65;
+  const softC = config?.soft_credits ?? 50;
+
+  const tIndex = buildTermIndex(terms);
 
   // Lookups.
   const bySigla = new Map();
@@ -44,21 +56,6 @@ function computeWarningsFallback(terms, courses, placements, draft, config) {
     if (!c) continue;
     if (c.sigla != null) bySigla.set(String(c.sigla), c);
   }
-
-  const getTermIdForCourse = (c) => {
-    const cid = c?.course_id != null ? String(c.course_id) : null;
-    if (cid && placements && Object.prototype.hasOwnProperty.call(placements, cid)) {
-      const tid = placements[cid];
-      return tid != null ? String(tid) : null;
-    }
-    return c?.term_id != null ? String(c.term_id) : null;
-  };
-
-  const getTermIdx = (tid) => {
-    if (tid == null) return Infinity;
-    const k = String(tid);
-    return termIndex.has(k) ? termIndex.get(k) : Infinity;
-  };
 
   /** @type {Array<any>} */
   const warnings = [];
@@ -73,7 +70,7 @@ function computeWarningsFallback(terms, courses, placements, draft, config) {
   const creditsByTerm = new Map();
   for (const c of Array.isArray(courses) ? courses : []) {
     if (!c) continue;
-    const tid = getTermIdForCourse(c);
+    const tid = termIdOfCourse(c, placements);
     if (!tid) continue;
     const cr = Number(c.creditos ?? c.créditos ?? 0) || 0;
     creditsByTerm.set(tid, (creditsByTerm.get(tid) || 0) + cr);
@@ -105,8 +102,8 @@ function computeWarningsFallback(terms, courses, placements, draft, config) {
 
     const cid = c.course_id != null ? String(c.course_id) : "";
     const sigla = c.sigla != null ? String(c.sigla) : "";
-    const tid = getTermIdForCourse(c);
-    const cIdx = getTermIdx(tid);
+    const tid = termIdOfCourse(c, placements);
+    const cIdx = termIdx(tIndex, tid);
 
     // Skip prerequisite/offering checks for approved courses.
     if (c.aprobado === true) continue;
@@ -115,8 +112,8 @@ function computeWarningsFallback(terms, courses, placements, draft, config) {
     const offered = Array.isArray(c.semestreOfrecido)
       ? c.semestreOfrecido.filter(Boolean).map(String)
       : [];
-    if (offered.length && tid && termIndex.has(String(tid))) {
-      const t = terms[termIndex.get(String(tid))];
+    if (offered.length && tid && tIndex.has(String(tid))) {
+      const t = terms[tIndex.get(String(tid))];
       const code = t?.code != null ? String(t.code) : null;
       if (code && !offered.includes(code)) {
         pushWarn("soft", {
@@ -134,6 +131,7 @@ function computeWarningsFallback(terms, courses, placements, draft, config) {
     const prereqs = Array.isArray(c.prerrequisitos)
       ? c.prerrequisitos.filter(Boolean).map(String)
       : [];
+
     for (const p of prereqs) {
       const pc = bySigla.get(p);
       if (!pc) {
@@ -151,8 +149,8 @@ function computeWarningsFallback(terms, courses, placements, draft, config) {
 
       if (pc.aprobado === true) continue;
 
-      const ptid = getTermIdForCourse(pc);
-      const pIdx = getTermIdx(ptid);
+      const ptid = termIdOfCourse(pc, placements);
+      const pIdx = termIdx(tIndex, ptid);
 
       // Mutual coreq in same term: A requires B and B requires A, scheduled same term.
       if (pIdx === cIdx && pIdx !== Infinity) {
@@ -179,7 +177,6 @@ function computeWarningsFallback(terms, courses, placements, draft, config) {
   }
 
   // Sort: stable & predictable.
-  const kindRank = (k) => (k === "hard" ? 0 : 1);
   warnings.sort((a, b) => {
     // Active warnings first, ignored later.
     const ai = a.ignored ? 1 : 0;
@@ -190,38 +187,22 @@ function computeWarningsFallback(terms, courses, placements, draft, config) {
     const bk = kindRank(b.kind);
     if (ak !== bk) return ak - bk;
 
-    const ati = getTermIdx(a.term_id);
-    const bti = getTermIdx(b.term_id);
+    const ati = termIdx(tIndex, a.term_id);
+    const bti = termIdx(tIndex, b.term_id);
     if (ati !== bti) return ati - bti;
 
     return String(a.text || "").localeCompare(String(b.text || ""), "es");
   });
+
   return warnings;
 }
 
 /**
- * Compute warnings (module entrypoint).
- * If a legacy implementation is injected, use it to preserve exact ids/shape.
- */
-export function computeWarnings(terms, courses, placements, draft, config) {
-  if (_legacyComputeWarnings) return _legacyComputeWarnings(terms, courses, placements, draft, config);
-  return computeWarningsFallback(terms, courses, placements, draft, config);
-}
-
-/**
  * Utility: pick first hard/soft warning for top summary.
- * This is behavior-neutral and can be used by app.js once wired.
  */
 export function firstWarningSummary(warnings) {
-  // Supports either legacy array format or {hard,soft} object.
-  if (Array.isArray(warnings)) {
-    const firstHard = warnings.find((w) => w && w.kind === "hard" && !w.ignored) || null;
-    const firstSoft = warnings.find((w) => w && w.kind === "soft" && !w.ignored) || null;
-    return { firstHard, firstSoft };
-  }
-  const hard = warnings?.hard || warnings?.hardWarnings || [];
-  const soft = warnings?.soft || warnings?.softWarnings || [];
-  const firstHard = Array.isArray(hard) && hard.length ? hard[0] : null;
-  const firstSoft = Array.isArray(soft) && soft.length ? soft[0] : null;
+  if (!Array.isArray(warnings)) return { firstHard: null, firstSoft: null };
+  const firstHard = warnings.find((w) => w && w.kind === "hard" && !w.ignored) || null;
+  const firstSoft = warnings.find((w) => w && w.kind === "soft" && !w.ignored) || null;
   return { firstHard, firstSoft };
 }
