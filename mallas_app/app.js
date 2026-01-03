@@ -17,6 +17,7 @@ import {
 } from "./modules/render.js";
 import { initDragDrop } from "./modules/dragdrop.js";
 import { initUnlock } from "./modules/unlock.js";
+import { openCourseMenu } from "./modules/courseMenu.js";
 import { openCreateCourseModal } from "./modules/courseModal.js";
 import {
   ensureDraftTempCourses,
@@ -730,7 +731,15 @@ async function main() {
     });
 
     // Unlock view (click a course to highlight + blink unlocks)
-    initUnlock({ gridId: "grid", enabled: true });
+    initUnlock({
+      gridId: "grid",
+      enabled: true,
+      onSecondClick: (courseId) => {
+        const course = state.byId?.get?.(courseId) || (Array.isArray(state.all?.courses) ? state.all.courses.find((c) => c.course_id === courseId) : null);
+        if (!course) return;
+        openCourseMenu({ course, isDraftMode: !!state.draftMode });
+      },
+    });
 
     loadTheme();
     await loadAll();
