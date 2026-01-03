@@ -414,21 +414,47 @@ def handler_factory(b: Path, ui_dir):
             return super().do_GET()
 
         def do_POST(self):
-            if urlparse(self.path).path != "/api/draft":
-                return send(self, 404, "text/plain; charset=utf-8", b"404 Not Found")
-            try:
-                n = int(self.headers.get("Content-Length", "0"))
-                raw = self.rfile.read(n) if n > 0 else b"{}"
-                d = sanitize_draft(json.loads(raw.decode("utf-8")))
-                save_draft(b, d)
-                return send(self, 200, "application/json; charset=utf-8", jdump({"ok": True}).encode("utf-8"))
-            except Exception as e:
-                return send(
-                    self,
-                    400,
-                    "application/json; charset=utf-8",
-                    jdump({"ok": False, "error": str(e)}).encode("utf-8"),
-                )
+            path = urlparse(self.path).path
+
+            if path == "/api/draft":
+                try:
+                    n = int(self.headers.get("Content-Length", "0"))
+                    raw = self.rfile.read(n) if n > 0 else b"{}"
+                    d = sanitize_draft(json.loads(raw.decode("utf-8")))
+                    save_draft(b, d)
+                    return send(self, 200, "application/json; charset=utf-8", jdump({"ok": True}).encode("utf-8"))
+                except Exception as e:
+                    return send(
+                        self,
+                        400,
+                        "application/json; charset=utf-8",
+                        jdump({"ok": False, "error": str(e)}).encode("utf-8"),
+                    )
+
+            if path == "/api/draft/reset":
+                # Hard reset: delete malla_draft.json (frontend must confirm).
+                try:
+                    p = draft_path(b)
+                    existed = p.exists()
+                    try:
+                        p.unlink()
+                    except FileNotFoundError:
+                        existed = False
+                    return send(
+                        self,
+                        200,
+                        "application/json; charset=utf-8",
+                        jdump({"ok": True, "deleted": existed}).encode("utf-8"),
+                    )
+                except Exception as e:
+                    return send(
+                        self,
+                        400,
+                        "application/json; charset=utf-8",
+                        jdump({"ok": False, "error": str(e)}).encode("utf-8"),
+                    )
+
+            return send(self, 404, "text/plain; charset=utf-8", b"404 Not Found")
 
         def api_get(self, path: str):
             if path == "/api/config":
