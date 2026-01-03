@@ -283,7 +283,7 @@ button:hover{filter:brightness(0.96)}
 details{margin-top:10px}
 pre{white-space:pre-wrap;word-break:break-word;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:10px}
 
-/* Modal (course creator) — must overlay above everything like warnings */
+/* Modal (course creator + course menu) — must overlay above everything like warnings */
 .modal-overlay{
   position:fixed;
   inset:0;
@@ -294,11 +294,58 @@ pre{white-space:pre-wrap;word-break:break-word;background:var(--surface);border:
   padding:18px;
   z-index:9999;
 }
-/* courseModal.js toggles ov.style.display = "block"; force flex overlay when visible */
+/* courseModal.js / courseMenu.js toggle ov.style.display = "block"; force flex overlay when visible */
 .modal-overlay[style*="display: block"],
-#courseModal[style*="display: block"]{
+#courseModal[style*="display: block"],
+#courseMenuModal[style*="display: block"]{
   display:flex !important;
 }
+
+/* Course menu accent system (designer mode): uses --menu-accent set by JS */
+.course-menu{
+  --menu-accent: var(--info-border);
+  position:relative;
+}
+.course-menu::before{
+  content:"";
+  position:absolute;
+  left:0;top:0;right:0;
+  height:6px;
+  background:var(--menu-accent);
+  border-radius:16px 16px 0 0;
+}
+.course-menu .modal-header{
+  padding-top:10px; /* compensate for accent bar */
+}
+
+/* Title feels like the course card (strong + clean) */
+.course-menu .modal-title{
+  font-size:18px;
+  letter-spacing:.2px;
+}
+
+/* Accent-tag (En disco / Temporal) */
+.tag.menu-accent{
+  border-color:color-mix(in srgb, var(--menu-accent) 55%, var(--border));
+  background:color-mix(in srgb, var(--menu-accent) 12%, var(--card));
+}
+:root[data-theme="dark"] .tag.menu-accent{
+  border-color:color-mix(in srgb, var(--menu-accent) 65%, var(--border));
+  background:color-mix(in srgb, var(--menu-accent) 18%, var(--card));
+}
+
+/* Dots inside the menu (reuses w-dot geometry) */
+.w-dot.menu-accent{
+  background:color-mix(in srgb, var(--menu-accent) 45%, transparent);
+  border-color:color-mix(in srgb, var(--menu-accent) 70%, var(--border));
+}
+
+/* Optional: subtle focus ring for close button */
+.course-menu .modal-close:focus-visible{
+  outline:3px solid color-mix(in srgb, var(--menu-accent) 55%, var(--info-border));
+  outline-offset:2px;
+}
+
 
 /* Header/footer variants used by courseModal.js */
 .modal-header{
