@@ -13,7 +13,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 APP_NAME = "malla_app"
-APP_VERSION = "0.9.6"
+APP_VERSION = "0.9.51"
 
 TERM_RE = re.compile(r"^(?P<y>\d{4})-(?P<s>[012])(?:\b|$)")
 COURSE_DIRS = [",Cursos", "Cursos"]
@@ -322,7 +322,19 @@ def discover_all(b: Path):
 # ---------- draft ----------
 
 def draft_default():
-    return {"term_order": [], "placements": {}, "custom_terms": [], "ignored_warnings": {}}
+    # Draft schema (persisted in malla_draft.json)
+    # - term_order: ordering of terms in UI
+    # - placements: course_id -> term_id overrides
+    # - custom_terms: user-created terms
+    # - ignored_warnings: persisted ignore flags by warning id
+    # - temp_courses: courses that exist only in draft (UI-created)
+    return {
+        "term_order": [],
+        "placements": {},
+        "custom_terms": [],
+        "ignored_warnings": {},
+        "temp_courses": [],
+    }
 
 
 def draft_path(b: Path) -> Path:
@@ -343,6 +355,11 @@ def sanitize_draft(d: dict) -> dict:
         d["custom_terms"] = []
     if not isinstance(d["ignored_warnings"], dict):
         d["ignored_warnings"] = {}
+    if not isinstance(d.get("temp_courses"), list):
+        d["temp_courses"] = []
+    else:
+        # Keep only dict-like entries to avoid crashes in the UI.
+        d["temp_courses"] = [x for x in d["temp_courses"] if isinstance(x, dict)]
     return d
 
 
