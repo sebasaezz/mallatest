@@ -185,6 +185,7 @@
   },
   "active": "cceed0accc60e9dc",
   "lastOpenFiles": [
+    "mallas_app/modules/warnings.js",
     "mallas_app/modules/state.js",
     "mallas_app/modules/api.js",
     "mallas_app/modules/toasts.js",
@@ -195,7 +196,6 @@
     "mallas_app/app.js",
     "mallas_app/styles.css",
     "mallas_app/index.html",
-    "mallas_app/logic.js",
-    "mallas_app/api.js"
+    "mallas_app/logic.js"
   ]
 }
