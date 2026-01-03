@@ -4,11 +4,13 @@
 // - Warnings (soft/hard) + ignorar persistente (draft)
 // - Unlock view: click en curso -> resalta + parpadea lo que desbloquea
 
+import { byId } from "./modules/utils.js";
+
 let CONFIG=null, ALL=null, DRAFT=null;
 let draftMode=false, dirtyDraft=false;
 let ADD_TERM_TOUCHED=false; // si el usuario tocó addYear/addSem, no auto-sobrescribir
 
-const $ = (id) => document.getElementById(id);
+const $ = byId;
 const on = (id, ev, fn) => $(id)?.addEventListener(ev, fn);
 
 // ---------- debug (colors/categories) ----------
