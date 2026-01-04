@@ -7,6 +7,8 @@
 let _ov = null;
 let _panel = null;
 let _escBound = false;
+let _onDeleteTempCourse = null;
+let _onMoveTempToDisk = null;
 
 function el(tag, cls, text) {
   const n = document.createElement(tag);
@@ -227,6 +229,19 @@ function renderMenu({ course, isDraftMode }) {
 
   // Footer
   const foot = el("div", "modal-footer");
+  if (isTemp && isDraftMode) {
+    const del = el("button", "btn", "Eliminar");
+    del.type = "button";
+    if (typeof _onDeleteTempCourse === "function") del.addEventListener("click", () => _onDeleteTempCourse(course));
+    else del.disabled = true;
+    foot.appendChild(del);
+
+    const move = el("button", "btn", "Mover a disco");
+    move.type = "button";
+    if (typeof _onMoveTempToDisk === "function") move.addEventListener("click", () => _onMoveTempToDisk(course));
+    else move.disabled = true;
+    foot.appendChild(move);
+  }
   const ok = el("button", "btn primary", "Cerrar");
   ok.type = "button";
   ok.addEventListener("click", closeCourseMenu);
@@ -237,8 +252,16 @@ function renderMenu({ course, isDraftMode }) {
   _panel.appendChild(foot);
 }
 
-export function openCourseMenu({ course, isDraftMode = false, sourceEl } = {}) {
+export function openCourseMenu({
+  course,
+  isDraftMode = false,
+  sourceEl,
+  onDeleteTempCourse = null,
+  onMoveTempToDisk = null,
+} = {}) {
   ensureDOM();
+  _onDeleteTempCourse = typeof onDeleteTempCourse === "function" ? onDeleteTempCourse : null;
+  _onMoveTempToDisk = typeof onMoveTempToDisk === "function" ? onMoveTempToDisk : null;
   if (!course) return;
   // Pick accent color from the rendered course element (best source of truth).
   const accent = _pickAccentFromSourceEl(sourceEl);
