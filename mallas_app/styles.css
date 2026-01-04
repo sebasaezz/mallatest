@@ -388,6 +388,10 @@ pre{white-space:pre-wrap;word-break:break-word;background:var(--surface);border:
   border-color:var(--info-border);
   background:var(--info);
 }
+.btn.bad{
+  border-color:#f3b0b0;
+  background:var(--bad);
+}
 
 /* Form layout (course creator modal) */
 .form-row{display:flex;flex-direction:column;gap:6px}
