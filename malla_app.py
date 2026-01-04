@@ -504,10 +504,9 @@ def handler_factory(b: Path, ui_dir):
                         fm.setdefault("semestreOfrecido", semestre_ofrecido)
                     fm.setdefault("semestre", sem_val)
                     fm.setdefault("año", year_val)
-                    fm.setdefault("sección", fm.get("sección", 1))
+                    fm.setdefault("sección", fm.get("sección", 0))
                     fm.setdefault("notaObtenida", fm.get("notaObtenida", 0))
                     fm.setdefault("dg-publish", fm.get("dg-publish", True))
-                    fm.setdefault("Curso", fm.get("Curso", sigla))
 
                     term_dir = (b / term_id).resolve()
                     term_dir.mkdir(parents=True, exist_ok=True)
