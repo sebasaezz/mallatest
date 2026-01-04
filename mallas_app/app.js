@@ -226,9 +226,14 @@ function mergeCoursesWithTemps() {
   if (!state.all || !state.draft) return;
   ensureDraftTempCourses(state.draft);
 
-  const real = Array.isArray(state._realCourses)
-    ? state._realCourses
+  const baseReal = Array.isArray(state._realCourses)
+    ? state._realCourses.filter((c) => !c?.is_temp)
     : (Array.isArray(state.all?.courses) ? state.all.courses : []).filter((c) => !c?.is_temp);
+
+  // Keep an always-clean copy of real courses (no temps) to avoid duplication on repeated merges.
+  state._realCourses = baseReal;
+
+  const real = baseReal;
 
   // Replace array reference so unlock/warnings can detect changes.
   state.all.courses = mergeTempCourses(real, state.draft);
@@ -260,7 +265,8 @@ function openTempCourseCreator(termId) {
         fullRenderMod();
         showNotice("info", `Curso temporal creado: ${course.sigla}.`);
       } catch (e) {
-        showNotice("hard", String(e?.message || e));
+        const kind = e?.noticeKind === "soft" ? "soft" : "hard";
+        showNotice(kind, String(e?.message || e));
       }
     },
   });
@@ -569,6 +575,7 @@ function fullRender() {
 
 async function saveDraftToServer() {
   await saveDraft(state.draft || {});
+  mergeCoursesWithTemps();
   state.dirtyDraft = false;
   updateDraftButtons();
   showNotice("info", "Borrador guardado.");

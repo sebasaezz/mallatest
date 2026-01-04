@@ -94,11 +94,20 @@ function stableCourseId() {
   return `tmp:${nowStamp()}:${rand6()}`;
 }
 
+function softError(message) {
+  const err = new Error(message);
+  err.noticeKind = "soft";
+  return err;
+}
+
 export function makeTempCourse(form, term_id, opts = {}) {
   const existingSiglas = opts.existingSiglas instanceof Set ? opts.existingSiglas : new Set(opts.existingSiglas || []);
 
   const nombre = String(form?.nombre || "").trim();
-  const creditos = asInt(form?.creditos ?? form?.créditos, 0);
+  const creditos = asInt(form?.creditos ?? form?.créditos, NaN);
+
+  if (!nombre) throw softError("El nombre del curso temporal es obligatorio.");
+  if (!Number.isFinite(creditos) || creditos <= 0) throw softError("Los créditos deben ser un número positivo.");
 
   let sigla = String(form?.sigla || "").trim();
   if (!sigla) sigla = nextTempSigla(existingSiglas);
