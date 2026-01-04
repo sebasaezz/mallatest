@@ -495,7 +495,7 @@ function renderMenu({ course, isDraftMode }) {
     body.appendChild(fieldRow("Concentración", concSel));
     body.appendChild(fieldRow("", aprobadoChk.wrap));
 
-    const materialize = el("button", "btn", "Materializar");
+    const materialize = el("button", "btn", "Guardar en disco");
     materialize.type = "button";
     if (typeof _onMaterialize === "function") materialize.addEventListener("click", () => _onMaterialize(course));
     else materialize.disabled = true;
@@ -506,12 +506,6 @@ function renderMenu({ course, isDraftMode }) {
     if (typeof _onDeleteTempCourse === "function") del.addEventListener("click", () => _onDeleteTempCourse(course));
     else del.disabled = true;
     foot.appendChild(del);
-
-    const move = el("button", "btn", "Mover a disco");
-    move.type = "button";
-    if (typeof _onMoveTempToDisk === "function") move.addEventListener("click", () => _onMoveTempToDisk(course));
-    else move.disabled = true;
-    foot.appendChild(move);
 
     const cancel = el("button", "btn", "Cancelar");
     cancel.type = "button";

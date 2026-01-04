@@ -418,7 +418,7 @@ async function materializeTempCourse(course) {
     return;
   }
   if (!course.is_temp) {
-    showNotice("soft", "Solo se pueden materializar cursos temporales.");
+    showNotice("soft", "Solo se pueden guardar cursos temporales en disco.");
     return;
   }
 
@@ -473,7 +473,7 @@ async function materializeTempCourse(course) {
     fullRenderMod();
 
     const rel = res?.fileRel ? ` (${res.fileRel})` : "";
-    showNotice("info", `Curso materializado${rel ? ":" : ""}${rel}`);
+    showNotice("info", `Curso guardado en disco${rel ? ":" : ""}${rel}`);
     closeCourseMenu();
   } catch (e) {
     showNotice("hard", String(e?.message || e));
@@ -491,7 +491,7 @@ async function materializeAllTempCourses() {
   const temps = ensureDraftTempCourses(state.draft);
   const list = Array.isArray(temps) ? temps.filter((c) => c && c.is_temp) : [];
   if (!list.length) {
-    showNotice("soft", "No hay cursos temporales para materializar.");
+    showNotice("soft", "No hay cursos temporales para guardar en disco.");
     return;
   }
 
@@ -499,7 +499,7 @@ async function materializeAllTempCourses() {
   const prevLabel = btn?.textContent;
   if (btn) {
     btn.disabled = true;
-    btn.textContent = "Materializando…";
+    btn.textContent = "Guardando en disco…";
   }
   updateDraftButtons();
 
@@ -507,13 +507,13 @@ async function materializeAllTempCourses() {
     for (const course of list) {
       await materializeTempCourse(course);
     }
-    showNotice("info", "Cursos temporales materializados.");
+    showNotice("info", "Cursos temporales guardados en disco.");
   } catch (e) {
     showNotice("hard", String(e?.message || e));
   } finally {
     MATERIALIZE_ALL_BUSY = false;
     if (btn) {
-      btn.textContent = prevLabel || "Materializar temporales";
+      btn.textContent = prevLabel || "Guardar en disco";
     }
     updateDraftButtons();
   }
