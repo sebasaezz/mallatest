@@ -482,19 +482,39 @@ def handler_factory(b: Path, ui_dir):
                     if not sigla:
                         raise ValueError("sigla obligatoria")
 
+                    # Derive semester/year from term_id
+                    m = TERM_RE.match(term_id)
+                    year_val = int(m.group(1)) if m else None
+                    sem_val = int(m.group(2)) if m else None
+
+                    # Frontmatter defaults and normalizations
                     fm.setdefault("sigla", sigla)
+                    fm.setdefault("Curso", fm.get("Curso") or sigla)
                     if nombre:
                         fm.setdefault("nombre", nombre)
                     if creditos is not None:
                         fm.setdefault("creditos", creditos)
+                        fm.setdefault("créditos", creditos)
                     if aprobado is not None:
                         fm.setdefault("aprobado", aprobado)
+                    else:
+                        fm.setdefault("aprobado", False)
                     if concentracion is not None:
                         fm.setdefault("concentracion", concentracion)
+                        fm.setdefault("concentración", concentracion)
                     if prerrequisitos is not None:
                         fm.setdefault("prerrequisitos", prerrequisitos)
                     if semestre_ofrecido is not None:
                         fm.setdefault("semestreOfrecido", semestre_ofrecido)
+                    if sem_val is not None:
+                        fm.setdefault("semestre", sem_val)
+                    if year_val is not None:
+                        fm.setdefault("año", year_val)
+                    fm.setdefault("notaObtenida", 0)
+                    fm.setdefault("seccion", fm.get("seccion") or fm.get("sección") or payload.get("seccion") or payload.get("sección") or 1)
+                    if "sección" not in fm:
+                        fm["sección"] = fm.get("seccion")
+                    fm.setdefault("dg-publish", True)
 
                     term_dir = (b / term_id).resolve()
                     term_dir.mkdir(parents=True, exist_ok=True)
@@ -518,7 +538,24 @@ def handler_factory(b: Path, ui_dir):
                     except Exception:
                         fm_text = jdump(fm, indent=2)
 
-                    md_body = f"---\n{fm_text}\n---\n\n"
+                    dataview_block = (
+                        "```dataviewjs\n"
+                        "let notas = dv.pages().where(b=>b.file.frontmatter.Curso === dv.current().file.name).file.frontmatter.notaObtenida\n"
+                        "let pond = dv.pages().where(b=>b.file.frontmatter.Curso === dv.current().file.name).file.frontmatter.Ponderación\n"
+                        "let sigla = dv.pages().where(b=>b.file.frontmatter.Curso === dv.current().file.name).file.link\n"
+                        "let arr = []\n"
+                        "let nf = 0\n"
+                        "for(i=0;i<=notas.length-1;i++){\n"
+                        "    arr.push([sigla[i],notas[i],pond[i]])\n"
+                        "    nf = nf + notas[i]*pond[i]\n"
+                        "}\n"
+                        "nf = Math.round(nf*10)/10\n"
+                        'dv.table(["Evaluación","Nota","Ponderación"],arr)\n'
+                        'dv.paragraph("$$\\\\Huge{\\\\text{NFC}="+nf+"}$$")\n'
+                        "```\n"
+                    )
+
+                    md_body = f"---\n{fm_text}\n---\n\n{dataview_block}"
                     with lock:
                         md_path.write_text(md_body, encoding="utf-8")
 
