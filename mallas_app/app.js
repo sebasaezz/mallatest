@@ -326,6 +326,86 @@ function deleteTempCourse(course_id) {
   showNotice("info", `Curso temporal eliminado: ${label}.`);
 }
 
+function updateTempCourse(course, form) {
+  if (!state?.draft || typeof state.draft !== "object") {
+    showNotice("soft", "No hay borrador cargado.");
+    return;
+  }
+
+  const cid = String(course?.course_id || "").trim();
+  if (!cid) return;
+
+  const nombre = String(form?.nombre || "").trim();
+  const creditos = Number(form?.creditos) || 0;
+  if (!nombre) {
+    showNotice("soft", "El nombre del curso está vacío.");
+    return;
+  }
+  if (!(Number.isFinite(creditos) && creditos > 0)) {
+    showNotice("soft", "Los créditos deben ser un número positivo.");
+    return;
+  }
+
+  const temps = ensureDraftTempCourses(state.draft);
+  const draftCourse = temps.find((c) => String(c?.course_id || "") === cid);
+  if (!draftCourse) {
+    showNotice("soft", "Curso temporal no encontrado.");
+    return;
+  }
+
+  const oldSigla = String(draftCourse.sigla || "").trim().toUpperCase();
+  let newSigla = String(form?.sigla || "").trim().toUpperCase();
+  if (!newSigla) newSigla = oldSigla;
+
+  const existing = listAllSiglas(state.all?.courses || []);
+  existing.delete(oldSigla);
+  if (existing.has(newSigla)) {
+    const base = newSigla;
+    for (let i = 0; i < 26; i++) {
+      const trial = base + String.fromCharCode(65 + i);
+      if (!existing.has(trial)) {
+        newSigla = trial;
+        break;
+      }
+    }
+  }
+
+  draftCourse.sigla = newSigla;
+  draftCourse.frontmatter = draftCourse.frontmatter && typeof draftCourse.frontmatter === "object" ? draftCourse.frontmatter : {};
+  draftCourse.frontmatter.sigla = newSigla;
+
+  draftCourse.nombre = nombre;
+  draftCourse.frontmatter.nombre = draftCourse.nombre;
+
+  draftCourse.creditos = creditos;
+  draftCourse.frontmatter.creditos = draftCourse.creditos;
+
+  draftCourse.concentracion = String(form?.concentracion || "ex").trim() || "ex";
+  draftCourse.frontmatter.concentracion = draftCourse.concentracion;
+
+  const offered = Array.isArray(form?.semestreOfrecido) ? form.semestreOfrecido.slice() : [];
+  draftCourse.semestreOfrecido = offered;
+  draftCourse.frontmatter.semestreOfrecido = offered.slice();
+
+  const prereqsArr = Array.isArray(form?.prerrequisitos) ? form.prerrequisitos.map((s) => String(s).trim()).filter(Boolean) : [];
+  const coreqsArr = Array.isArray(form?.correquisitos) ? form.correquisitos.map((s) => String(s).trim()).filter(Boolean) : [];
+  const combinedReqs = prereqsArr.concat(coreqsArr.map((c) => `${c}(c)`));
+  draftCourse.prerrequisitos = combinedReqs;
+  draftCourse.frontmatter.prerrequisitos = combinedReqs;
+
+  draftCourse.aprobado = !!form?.aprobado;
+  draftCourse.frontmatter.aprobado = draftCourse.aprobado;
+
+  state.dirtyDraft = true;
+  mergeCoursesWithTemps();
+  updateDraftButtons();
+  fullRenderMod();
+
+  const label = String(draftCourse.sigla || draftCourse.nombre || cid);
+  showNotice("info", `Curso temporal actualizado: ${label}.`);
+  closeCourseMenu();
+}
+
 function moveTempCourseToDisk(course) {
   const label = String(course?.sigla || course?.nombre || "").trim() || "curso temporal";
   showNotice("soft", `Mover a disco aún no está disponible para ${label}.`);
@@ -806,6 +886,9 @@ const _openMenuForCourseId = (courseId, sourceEl = null) => {
     onDeleteTempCourse: (c) => deleteTempCourse(c?.course_id),
     onMoveTempToDisk: (c) => moveTempCourseToDisk(c),
     onMaterialize: (c) => materializeTempCourse(c),
+    onSaveCourse: (c, form) => updateTempCourse(c, form),
+    catalog: state.all?.courses || [],
+    siglaSet: listAllSiglas(state.all?.courses || []),
   });
 };
 
