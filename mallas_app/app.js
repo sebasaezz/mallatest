@@ -320,11 +320,6 @@ async function materializeTempCourse(course) {
     return;
   }
 
-  if (typeof api.materializeCourse !== "function") {
-    showNotice("hard", "Materializar no está disponible en esta versión de la API.");
-    return;
-  }
-
   const placementTid = (state.draft?.placements && state.draft.placements[cid]) || course.term_id;
   const term_id = String(placementTid || "").trim();
   if (!term_id) {
