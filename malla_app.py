@@ -13,7 +13,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 APP_NAME = "malla_app"
-APP_VERSION = "0.9.51"
+APP_VERSION = "0.9.52"
 
 TERM_RE = re.compile(r"^(?P<y>\d{4})-(?P<s>[012])(?:\b|$)")
 COURSE_DIRS = [",Cursos", "Cursos"]
@@ -445,6 +445,88 @@ def handler_factory(b: Path, ui_dir):
                         200,
                         "application/json; charset=utf-8",
                         jdump({"ok": True, "deleted": existed}).encode("utf-8"),
+                    )
+                except Exception as e:
+                    return send(
+                        self,
+                        400,
+                        "application/json; charset=utf-8",
+                        jdump({"ok": False, "error": str(e)}).encode("utf-8"),
+                    )
+
+            if path == "/api/materialize":
+                try:
+                    n = int(self.headers.get("Content-Length", "0"))
+                    raw = self.rfile.read(n) if n > 0 else b"{}"
+                    payload = json.loads(raw.decode("utf-8"))
+                    if not isinstance(payload, dict):
+                        raise ValueError("Payload inválido")
+
+                    term_id = str(payload.get("term_id", "") or "").strip()
+                    fm = payload.get("frontmatter") if isinstance(payload.get("frontmatter"), dict) else {}
+
+                    sigla = str(payload.get("sigla") or fm.get("sigla") or "").strip()
+                    nombre = str(payload.get("nombre") or fm.get("nombre") or "").strip()
+                    creditos = payload.get("creditos")
+                    if creditos is None:
+                        creditos = fm.get("creditos", fm.get("créditos"))
+                    aprobado = payload.get("aprobado") if payload.get("aprobado") is not None else fm.get("aprobado")
+                    concentracion = payload.get("concentracion") or payload.get("concentración")
+                    if concentracion is None:
+                        concentracion = fm.get("concentracion", fm.get("concentración"))
+                    prerrequisitos = payload.get("prerrequisitos", fm.get("prerrequisitos"))
+                    semestre_ofrecido = payload.get("semestreOfrecido", fm.get("semestreOfrecido"))
+
+                    if not term_id or not TERM_RE.match(term_id):
+                        raise ValueError("term_id inválido")
+                    if not sigla:
+                        raise ValueError("sigla obligatoria")
+
+                    fm.setdefault("sigla", sigla)
+                    if nombre:
+                        fm.setdefault("nombre", nombre)
+                    if creditos is not None:
+                        fm.setdefault("creditos", creditos)
+                    if aprobado is not None:
+                        fm.setdefault("aprobado", aprobado)
+                    if concentracion is not None:
+                        fm.setdefault("concentracion", concentracion)
+                    if prerrequisitos is not None:
+                        fm.setdefault("prerrequisitos", prerrequisitos)
+                    if semestre_ofrecido is not None:
+                        fm.setdefault("semestreOfrecido", semestre_ofrecido)
+
+                    term_dir = (b / term_id).resolve()
+                    term_dir.mkdir(parents=True, exist_ok=True)
+                    if not term_dir.is_dir():
+                        raise ValueError(f"No se pudo crear directorio de período: {term_dir}")
+
+                    courses_root, has_courses = find_courses_root(term_dir)
+                    if not has_courses:
+                        courses_root = term_dir / COURSE_DIRS[0]
+                        courses_root.mkdir(parents=True, exist_ok=True)
+
+                    safe_sigla = re.sub(r"[^A-Za-z0-9._-]+", "_", sigla) or "curso"
+                    md_path = (courses_root / f"{safe_sigla}.md").resolve()
+                    if not str(md_path).startswith(str(term_dir)):
+                        raise ValueError("Ruta de destino inválida")
+
+                    try:
+                        import yaml  # type: ignore
+
+                        fm_text = yaml.safe_dump(fm, allow_unicode=True, sort_keys=False)
+                    except Exception:
+                        fm_text = jdump(fm, indent=2)
+
+                    md_body = f"---\n{fm_text}\n---\n\n"
+                    with lock:
+                        md_path.write_text(md_body, encoding="utf-8")
+
+                    return send(
+                        self,
+                        200,
+                        "application/json; charset=utf-8",
+                        jdump({"ok": True, "fileRel": rel(md_path, b)}).encode("utf-8"),
                     )
                 except Exception as e:
                     return send(

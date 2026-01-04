@@ -9,6 +9,7 @@ let _panel = null;
 let _escBound = false;
 let _onDeleteTempCourse = null;
 let _onMoveTempToDisk = null;
+let _onMaterialize = null;
 
 function el(tag, cls, text) {
   const n = document.createElement(tag);
@@ -230,6 +231,12 @@ function renderMenu({ course, isDraftMode }) {
   // Footer
   const foot = el("div", "modal-footer");
   if (isTemp && isDraftMode) {
+    const materialize = el("button", "btn primary", "Materializar");
+    materialize.type = "button";
+    if (typeof _onMaterialize === "function") materialize.addEventListener("click", () => _onMaterialize(course));
+    else materialize.disabled = true;
+    foot.appendChild(materialize);
+
     const del = el("button", "btn", "Eliminar");
     del.type = "button";
     if (typeof _onDeleteTempCourse === "function") del.addEventListener("click", () => _onDeleteTempCourse(course));
@@ -258,10 +265,12 @@ export function openCourseMenu({
   sourceEl,
   onDeleteTempCourse = null,
   onMoveTempToDisk = null,
+  onMaterialize = null,
 } = {}) {
   ensureDOM();
   _onDeleteTempCourse = typeof onDeleteTempCourse === "function" ? onDeleteTempCourse : null;
   _onMoveTempToDisk = typeof onMoveTempToDisk === "function" ? onMoveTempToDisk : null;
+  _onMaterialize = typeof onMaterialize === "function" ? onMaterialize : null;
   if (!course) return;
   // Pick accent color from the rendered course element (best source of truth).
   const accent = _pickAccentFromSourceEl(sourceEl);
