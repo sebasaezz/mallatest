@@ -248,9 +248,9 @@ function mergeCoursesWithTemps() {
   if (!state.all || !state.draft) return;
   ensureDraftTempCourses(state.draft);
 
-  const baseReal = Array.isArray(state._realCourses)
-    ? state._realCourses.filter((c) => !c?.is_temp)
-    : (Array.isArray(state.all?.courses) ? state.all.courses : []).filter((c) => !c?.is_temp);
+  const baseReal = Array.isArray(state.all?.courses)
+    ? state.all.courses.filter((c) => !c?.is_temp)
+    : [];
 
   // Keep an always-clean copy of real courses (no temps) to avoid duplication on repeated merges.
   state._realCourses = baseReal;
