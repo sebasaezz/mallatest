@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "2025-1/,Cursos/IIQ1003.md",
+                "file": "2025-2/,Cursos/IEE1533.md",
                 "mode": "source",
-                "source": false
+                "source": true
               },
               "icon": "lucide-file",
-              "title": "IIQ1003"
+              "title": "IEE1533"
             }
           }
         ]
@@ -185,6 +185,10 @@
   },
   "active": "cceed0accc60e9dc",
   "lastOpenFiles": [
+    "mallas_app/MANUAL_TESTS.md",
+    "malla_draft.json",
+    "2025-2/,Cursos/MAT1650.md",
+    "2025-1/,Cursos/IIQ1003.md",
     "mallas_app/modules/dragdrop.js",
     "mallas_app/modules/render.js",
     "2025-2/,Cursos/IEE1533.md",
@@ -196,8 +200,6 @@
     "mallas_app/modules/utils.js",
     "mallas_app/modules",
     "README.md",
-    "malla_app.py",
-    "mallas_app/app.js",
-    "mallas_app/styles.css"
+    "malla_app.py"
   ]
 }
