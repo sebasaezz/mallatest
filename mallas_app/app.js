@@ -6,7 +6,7 @@
 
 import { byId } from "./modules/utils.js";
 import { showNotice, hideNotice } from "./modules/toasts.js";
-import { getConfig, getAll, getDraft, saveDraft, hardResetDraft } from "./modules/api.js";
+import { getConfig, getAll, getDraft, saveDraft, hardResetDraft, materializeCourse } from "./modules/api.js";
 import { state, setData, rebuildMaps } from "./modules/state.js";
 import { computeWarnings as computeWarningsBase } from "./modules/warnings.js";
 import {
@@ -307,6 +307,64 @@ function deleteTempCourse(course_id) {
 function moveTempCourseToDisk(course) {
   const label = String(course?.sigla || course?.nombre || "").trim() || "curso temporal";
   showNotice("soft", `Mover a disco aún no está disponible para ${label}.`);
+}
+
+async function materializeTempCourse(course) {
+  const cid = String(course?.course_id || "").trim();
+  if (!cid || !course) {
+    showNotice("soft", "Curso temporal inválido.");
+    return;
+  }
+  if (!course.is_temp) {
+    showNotice("soft", "Solo se pueden materializar cursos temporales.");
+    return;
+  }
+
+  const placementTid = (state.draft?.placements && state.draft.placements[cid]) || course.term_id;
+  const term_id = String(placementTid || "").trim();
+  if (!term_id) {
+    showNotice("hard", "El curso temporal no tiene período asignado.");
+    return;
+  }
+
+  const fm = course.frontmatter && typeof course.frontmatter === "object" ? course.frontmatter : {};
+  const payload = {
+    term_id,
+    sigla: course.sigla || fm.sigla,
+    nombre: course.nombre || fm.nombre,
+    creditos: course.creditos ?? course.créditos ?? fm.creditos ?? fm.créditos,
+    aprobado: course.aprobado ?? fm.aprobado,
+    concentracion: course.concentracion ?? course.concentración ?? fm.concentracion ?? fm["concentración"],
+    prerrequisitos: course.prerrequisitos ?? fm.prerrequisitos,
+    semestreOfrecido: course.semestreOfrecido ?? fm.semestreOfrecido,
+    frontmatter: fm,
+  };
+
+  try {
+    const res = await materializeCourse(payload);
+
+    ensureDraftTempCourses(state.draft);
+    state.draft.temp_courses = state.draft.temp_courses.filter((c) => String(c?.course_id || "") !== cid);
+    if (state.draft.placements && typeof state.draft.placements === "object") {
+      delete state.draft.placements[cid];
+    }
+
+    state.dirtyDraft = true;
+    await saveDraft(state.draft || {});
+    state.dirtyDraft = false;
+
+    const [all, draft] = await Promise.all([getAll(), getDraft()]);
+    setData({ config: state.config, all, draft });
+    mergeCoursesWithTemps();
+    updateDraftButtons();
+    fullRenderMod();
+
+    const rel = res?.fileRel ? ` (${res.fileRel})` : "";
+    showNotice("info", `Curso materializado${rel ? ":" : ""}${rel}`);
+    closeCourseMenu();
+  } catch (e) {
+    showNotice("hard", String(e?.message || e));
+  }
 }
 
 // ---------- draft terms + placements ----------
@@ -675,6 +733,7 @@ const _openMenuForCourseId = (courseId, sourceEl = null) => {
     sourceEl: sourceEl || undefined,
     onDeleteTempCourse: (c) => deleteTempCourse(c?.course_id),
     onMoveTempToDisk: (c) => moveTempCourseToDisk(c),
+    onMaterialize: (c) => materializeTempCourse(c),
   });
 };
 

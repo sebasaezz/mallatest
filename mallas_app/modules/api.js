@@ -51,6 +51,19 @@ export function getDraft() {
 }
 
 /**
+ * Materialize a temporary course into disk (POST /api/materialize).
+ * Returns {ok:true, fileRel:"..."} on success.
+ * @param {any} course
+ */
+export function materializeCourse(course) {
+  return fetchJSON("/api/materialize", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(course ?? {}),
+  });
+}
+
+/**
  * Save draft (POST /api/draft). Returns backend response {ok:true}.
  * @param {any} draft
  */
