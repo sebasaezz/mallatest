@@ -31,6 +31,11 @@ export function setData({ config = null, all = null, draft = null } = {}) {
   state.config = config;
   state.all = all;
   state.draft = draft;
+
+  // Keep a clean reference to the latest real courses (sin temporales) for callers that rely on it.
+  if (all && Array.isArray(all.courses)) {
+    state._realCourses = all.courses.filter((c) => !c?.is_temp);
+  }
 }
 
 export function setDraft(draft) {
