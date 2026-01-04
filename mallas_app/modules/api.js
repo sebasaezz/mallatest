@@ -83,3 +83,24 @@ export function saveDraft(draft) {
 export function hardResetDraft() {
   return fetchJSON("/api/draft/reset", { method: "POST" });
 }
+
+/**
+ * Update course frontmatter on disk (POST /api/course/update).
+ * @param {object} payload { course_id, frontmatter?, ... }
+ */
+export function updateCourse(payload) {
+  return fetchJSON("/api/course/update", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload ?? {}),
+  });
+}
+
+/**
+ * Convenience wrapper to toggle aprobado flag.
+ * @param {string} course_id
+ * @param {boolean} approved
+ */
+export function approveCourse(course_id, approved = true) {
+  return updateCourse({ course_id, aprobado: !!approved });
+}

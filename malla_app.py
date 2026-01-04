@@ -152,6 +152,36 @@ def as_bool(x) -> bool:
     return str(x).strip().lower() == "true"
 
 
+def build_course_from_frontmatter(fm: dict, course_id: str, file_rel: str, term_id: str) -> dict:
+    sigla = str(get(fm, "sigla", "código", "codigo", default=Path(file_rel).stem) or Path(file_rel).stem).strip()
+    nombre = str(get(fm, "nombre", default="") or "").strip()
+    creditos = as_int(get(fm, "créditos", "creditos", default=0), 0)
+    aprobado = as_bool(get(fm, "aprobado", default=False))
+
+    catv = get(fm, "concentracion", "concentración", default="ex")
+    if isinstance(catv, list):
+        catv = catv[0] if catv else "ex"
+    concentracion = str(catv or "").strip() or "ex"
+
+    prer = [str(x).strip() for x in listify(get(fm, "prerrequisitos", default=[])) if str(x).strip()]
+    prer = [p for p in prer if p.lower() != "nt"]
+    sem_of = [str(x).strip() for x in listify(get(fm, "semestreOfrecido", default=[])) if str(x).strip()]
+
+    return dict(
+        course_id=course_id,
+        fileRel=file_rel,
+        term_id=term_id,
+        sigla=sigla,
+        nombre=nombre,
+        creditos=creditos,
+        aprobado=aprobado,
+        concentracion=concentracion,
+        prerrequisitos=prer,
+        semestreOfrecido=sem_of,
+        frontmatter=fm,
+    )
+
+
 # ---------- discovery ----------
 
 def parse_term(name: str):
@@ -286,35 +316,7 @@ def discover_all(b: Path):
             fm_text, _ = split_frontmatter(txt)
             fm = parse_frontmatter(fm_text)
 
-            sigla = str(get(fm, "sigla", "código", "codigo", default=md.stem) or md.stem).strip()
-            nombre = str(get(fm, "nombre", default="") or "").strip()
-            creditos = as_int(get(fm, "créditos", "creditos", default=0), 0)
-            aprobado = as_bool(get(fm, "aprobado", default=False))
-
-            catv = get(fm, "concentracion", "concentración", default="ex")
-            if isinstance(catv, list):
-                catv = catv[0] if catv else "ex"
-            concentracion = str(catv or "").strip() or "ex"
-
-            prer = [str(x).strip() for x in listify(get(fm, "prerrequisitos", default=[])) if str(x).strip()]
-            prer = [p for p in prer if p.lower() != "nt"]
-            sem_of = [str(x).strip() for x in listify(get(fm, "semestreOfrecido", default=[])) if str(x).strip()]
-
-            courses.append(
-                dict(
-                    course_id=relp,  # estable
-                    fileRel=relp,
-                    term_id=term_id,
-                    sigla=sigla,
-                    nombre=nombre,
-                    creditos=creditos,
-                    aprobado=aprobado,
-                    concentracion=concentracion,
-                    prerrequisitos=prer,
-                    semestreOfrecido=sem_of,
-                    frontmatter=fm,
-                )
-            )
+            courses.append(build_course_from_frontmatter(fm, relp, relp, term_id))
 
     return terms, courses, debug
 
@@ -554,6 +556,144 @@ dv.paragraph(\"$$\\\\Huge{\\\\text{NFC}=\"+nf+\"}$$\")
                         200,
                         "application/json; charset=utf-8",
                         jdump({"ok": True, "fileRel": rel(md_path, b)}).encode("utf-8"),
+                    )
+                except Exception as e:
+                    return send(
+                        self,
+                        400,
+                        "application/json; charset=utf-8",
+                        jdump({"ok": False, "error": str(e)}).encode("utf-8"),
+                    )
+
+            if path == "/api/course/update":
+                try:
+                    n = int(self.headers.get("Content-Length", "0"))
+                    raw = self.rfile.read(n) if n > 0 else b"{}"
+                    payload = json.loads(raw.decode("utf-8"))
+                    if not isinstance(payload, dict):
+                        raise ValueError("Payload inválido")
+
+                    course_id = str(payload.get("course_id") or "").strip()
+                    if not course_id:
+                        raise ValueError("course_id obligatorio")
+
+                    md_path = (b / course_id).resolve()
+                    b_res = b.resolve()
+                    if not str(md_path).startswith(str(b_res)):
+                        raise ValueError("Ruta de curso inválida")
+                    if not md_path.is_file():
+                        raise ValueError("Archivo .md no encontrado")
+
+                    try:
+                        txt = md_path.read_text(encoding="utf-8")
+                    except UnicodeDecodeError:
+                        txt = md_path.read_text(encoding="utf-8", errors="replace")
+                    fm_text, body = split_frontmatter(txt)
+                    fm = parse_frontmatter(fm_text)
+                    if fm_text is None:
+                        # Sin frontmatter: considerar todo como cuerpo y empezar desde {}
+                        body = txt
+                        fm = {}
+
+                    updates = payload.get("frontmatter") if isinstance(payload.get("frontmatter"), dict) else {}
+                    for key in (
+                        "sigla",
+                        "nombre",
+                        "creditos",
+                        "créditos",
+                        "concentracion",
+                        "concentración",
+                        "prerrequisitos",
+                        "semestreOfrecido",
+                        "aprobado",
+                    ):
+                        if key in payload:
+                            updates[key] = payload.get(key)
+                    if "correquisitos" in payload:
+                        updates["corequisitos"] = payload.get("correquisitos")
+
+                    fm_new = dict(fm)
+
+                    coreq_list = None
+                    if "corequisitos" in updates:
+                        coreq_list = [str(x).strip() for x in listify(updates.pop("corequisitos")) if str(x).strip()]
+
+                    prer_list = None
+                    if "prerrequisitos" in updates:
+                        prer_list = [
+                            str(x).strip()
+                            for x in listify(updates.pop("prerrequisitos"))
+                            if str(x).strip() and str(x).strip().lower() != "nt"
+                        ]
+
+                    for k, v in updates.items():
+                        fm_new[k] = v
+
+                    if prer_list is not None or coreq_list is not None:
+                        base_prer = (
+                            prer_list
+                            if prer_list is not None
+                            else [
+                                p
+                                for p in listify(fm_new.get("prerrequisitos", []))
+                                if str(p).strip() and str(p).strip().lower() != "nt" and not str(p).strip().endswith("(c)")
+                            ]
+                        )
+                        if coreq_list is None:
+                            fm_new["prerrequisitos"] = base_prer
+                        else:
+                            fm_new["corequisitos"] = coreq_list
+                            fm_new["prerrequisitos"] = base_prer + [f"{c}(c)" for c in coreq_list if c]
+
+                    if "creditos" in fm_new or "créditos" in fm_new:
+                        cred_val = as_int(fm_new.get("creditos", fm_new.get("créditos", 0)), 0)
+                        fm_new["creditos"] = cred_val
+                        fm_new["créditos"] = cred_val
+
+                    if "aprobado" in fm_new:
+                        fm_new["aprobado"] = as_bool(fm_new.get("aprobado"))
+
+                    if "concentracion" in fm_new or "concentración" in fm_new:
+                        conc_v = fm_new.get("concentracion", fm_new.get("concentración", "ex"))
+                        if isinstance(conc_v, list):
+                            conc_v = conc_v[0] if conc_v else "ex"
+                        fm_new["concentracion"] = str(conc_v or "").strip() or "ex"
+                        fm_new["concentración"] = fm_new["concentracion"]
+
+                    if "semestreOfrecido" in fm_new:
+                        fm_new["semestreOfrecido"] = [str(x).strip() for x in listify(fm_new.get("semestreOfrecido")) if str(x).strip()]
+
+                    try:
+                        import yaml  # type: ignore
+
+                        fm_out = yaml.safe_dump(fm_new, allow_unicode=True, sort_keys=False)
+                    except Exception:
+                        fm_out = jdump(fm_new, indent=2)
+
+                    body_part = body or ""
+                    if body_part and not body_part.startswith("\n"):
+                        body_part = "\n" + body_part
+                    md_out = f"---\n{fm_out}\n---{body_part}"
+
+                    with lock:
+                        md_path.write_text(md_out, encoding="utf-8")
+
+                    term_id = ""
+                    for parent in [md_path.parent, *md_path.parents]:
+                        if parent == b_res:
+                            break
+                        t = parse_term(parent.name)
+                        if t:
+                            term_id = parent.name
+                            break
+
+                    course_payload = build_course_from_frontmatter(fm_new, course_id, rel(md_path, b), term_id)
+
+                    return send(
+                        self,
+                        200,
+                        "application/json; charset=utf-8",
+                        jdump({"ok": True, "course": course_payload}).encode("utf-8"),
                     )
                 except Exception as e:
                     return send(
