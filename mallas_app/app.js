@@ -341,7 +341,18 @@ async function materializeTempCourse(course) {
   };
 
   try {
-    const res = await api.materializeCourse(payload);
+    // Backward-compatible: some deployments may not expose materializeCourse yet.
+    const materializeFn =
+      typeof api.materializeCourse === "function"
+        ? api.materializeCourse
+        : (body) =>
+            api.fetchJSON("/api/materialize", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body ?? {}),
+            });
+
+    const res = await materializeFn(payload);
 
     ensureDraftTempCourses(state.draft);
     state.draft.temp_courses = state.draft.temp_courses.filter((c) => String(c?.course_id || "") !== cid);
