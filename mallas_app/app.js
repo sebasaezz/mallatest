@@ -29,6 +29,7 @@ import {
 
 // State moved to modules/state.js (kept as a single shared object).
 let ADD_TERM_TOUCHED=false; // si el usuario tocó addYear/addSem, no auto-sobrescribir
+let MATERIALIZE_ALL_BUSY = false; // lock para materializar todos los temporales
 
 const $ = byId;
 const on = (id, ev, fn) => $(id)?.addEventListener(ev, fn);
@@ -200,12 +201,33 @@ async function loadAll() {
   updateDraftButtons();
 }
 
+let _materializeAllClickHandler = null;
+function syncMaterializeAllHandler() {
+  const btn = $("materializeAllTemps");
+  if (!btn) return;
+  if (!state.draftMode) {
+    if (_materializeAllClickHandler) {
+      btn.removeEventListener("click", _materializeAllClickHandler);
+      _materializeAllClickHandler = null;
+    }
+    return;
+  }
+  if (_materializeAllClickHandler) return;
+  _materializeAllClickHandler = () => {
+    if (!state.draftMode || MATERIALIZE_ALL_BUSY) return;
+    materializeAllTempCourses();
+  };
+  btn.addEventListener("click", _materializeAllClickHandler);
+}
+
 function updateDraftButtons() {
-  const saveBtn = $("saveBtn"), resetBtn = $("resetBtn"), addBtn = $("addTermBtn"), hardBtn = $("hardResetBtn");
+  const saveBtn = $("saveBtn"), resetBtn = $("resetBtn"), addBtn = $("addTermBtn"), hardBtn = $("hardResetBtn"), matBtn = $("materializeAllTemps");
   if (saveBtn) saveBtn.disabled = !state.draftMode || !state.dirtyDraft;
   if (resetBtn) resetBtn.disabled = !state.draftMode;
   if (hardBtn) hardBtn.disabled = !state.draftMode;
   if (addBtn) addBtn.disabled = !state.draftMode;
+  if (matBtn) matBtn.disabled = !state.draftMode || MATERIALIZE_ALL_BUSY;
+  syncMaterializeAllHandler();
 }
 
 // ---------- prereqs parsing ----------
@@ -375,6 +397,45 @@ async function materializeTempCourse(course) {
     closeCourseMenu();
   } catch (e) {
     showNotice("hard", String(e?.message || e));
+  }
+}
+
+async function materializeAllTempCourses() {
+  if (!state.draftMode) return;
+  if (!state?.draft || typeof state.draft !== "object") {
+    showNotice("soft", "No hay borrador cargado.");
+    return;
+  }
+
+  const btn = $("materializeAllTemps");
+  const temps = ensureDraftTempCourses(state.draft);
+  const list = Array.isArray(temps) ? temps.filter((c) => c && c.is_temp) : [];
+  if (!list.length) {
+    showNotice("soft", "No hay cursos temporales para materializar.");
+    return;
+  }
+
+  MATERIALIZE_ALL_BUSY = true;
+  const prevLabel = btn?.textContent;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Materializando…";
+  }
+  updateDraftButtons();
+
+  try {
+    for (const course of list) {
+      await materializeTempCourse(course);
+    }
+    showNotice("info", "Cursos temporales materializados.");
+  } catch (e) {
+    showNotice("hard", String(e?.message || e));
+  } finally {
+    MATERIALIZE_ALL_BUSY = false;
+    if (btn) {
+      btn.textContent = prevLabel || "Materializar temporales";
+    }
+    updateDraftButtons();
   }
 }
 
