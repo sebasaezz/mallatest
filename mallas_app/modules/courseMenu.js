@@ -501,7 +501,7 @@ function renderMenu({ course, isDraftMode }) {
     else materialize.disabled = true;
     foot.appendChild(materialize);
 
-    const del = el("button", "btn", "Eliminar");
+    const del = el("button", "btn bad", "Eliminar");
     del.type = "button";
     if (typeof _onDeleteTempCourse === "function") del.addEventListener("click", () => _onDeleteTempCourse(course));
     else del.disabled = true;
