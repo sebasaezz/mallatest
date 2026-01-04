@@ -6,7 +6,7 @@
 
 import { byId } from "./modules/utils.js";
 import { showNotice, hideNotice } from "./modules/toasts.js";
-import { getConfig, getAll, getDraft, saveDraft, hardResetDraft, materializeCourse } from "./modules/api.js";
+import * as api from "./modules/api.js";
 import { state, setData, rebuildMaps } from "./modules/state.js";
 import { computeWarnings as computeWarningsBase } from "./modules/warnings.js";
 import {
@@ -177,9 +177,9 @@ function clearWarnNotice(){
 
 async function loadAll() {
   const [config, all, draft] = await Promise.all([
-    getConfig(),
-    getAll(),
-    getDraft(),
+    api.getConfig(),
+    api.getAll(),
+    api.getDraft(),
   ]);
 
   // Keep a reference to the real course list from the backend.
@@ -320,6 +320,11 @@ async function materializeTempCourse(course) {
     return;
   }
 
+  if (typeof api.materializeCourse !== "function") {
+    showNotice("hard", "Materializar no está disponible en esta versión de la API.");
+    return;
+  }
+
   const placementTid = (state.draft?.placements && state.draft.placements[cid]) || course.term_id;
   const term_id = String(placementTid || "").trim();
   if (!term_id) {
@@ -341,7 +346,7 @@ async function materializeTempCourse(course) {
   };
 
   try {
-    const res = await materializeCourse(payload);
+    const res = await api.materializeCourse(payload);
 
     ensureDraftTempCourses(state.draft);
     state.draft.temp_courses = state.draft.temp_courses.filter((c) => String(c?.course_id || "") !== cid);
@@ -350,10 +355,10 @@ async function materializeTempCourse(course) {
     }
 
     state.dirtyDraft = true;
-    await saveDraft(state.draft || {});
+    await api.saveDraft(state.draft || {});
     state.dirtyDraft = false;
 
-    const [all, draft] = await Promise.all([getAll(), getDraft()]);
+    const [all, draft] = await Promise.all([api.getAll(), api.getDraft()]);
     setData({ config: state.config, all, draft });
     mergeCoursesWithTemps();
     updateDraftButtons();
@@ -669,7 +674,7 @@ function fullRender() {
 }
 
 async function saveDraftToServer() {
-  await saveDraft(state.draft || {});
+  await api.saveDraft(state.draft || {});
   mergeCoursesWithTemps();
   state.dirtyDraft = false;
   updateDraftButtons();
@@ -677,7 +682,7 @@ async function saveDraftToServer() {
 }
 
 async function resetDraftFromServer() {
-  state.draft = await getDraft();
+  state.draft = await api.getDraft();
   ADD_TERM_TOUCHED = false;
   state.dirtyDraft = false;
   mergeCoursesWithTemps();
@@ -813,7 +818,7 @@ function initHandlers() {
     );
     if (!ok) return;
     try {
-      await hardResetDraft();
+      await api.hardResetDraft();
       showNotice("info", "Borrador eliminado. Recargando…");
       setTimeout(() => location.reload(), 150);
     } catch (e) {
