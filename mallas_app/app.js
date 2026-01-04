@@ -17,7 +17,7 @@ import {
 } from "./modules/render.js";
 import { initDragDrop } from "./modules/dragdrop.js";
 import { initUnlock } from "./modules/unlock.js";
-import { openCourseMenu } from "./modules/courseMenu.js";
+import { openCourseMenu, closeCourseMenu } from "./modules/courseMenu.js";
 import { openCreateCourseModal } from "./modules/courseModal.js";
 import {
   ensureDraftTempCourses,
@@ -270,6 +270,43 @@ function openTempCourseCreator(termId) {
       }
     },
   });
+}
+
+function deleteTempCourse(course_id) {
+  const cid = String(course_id || "").trim();
+  if (!cid) return;
+  if (!state?.draft || typeof state.draft !== "object") {
+    showNotice("soft", "No hay borrador cargado.");
+    return;
+  }
+
+  const temps = ensureDraftTempCourses(state.draft);
+  const course = temps.find((c) => String(c?.course_id || "") === cid);
+  if (!course) {
+    showNotice("soft", "Curso temporal no encontrado.");
+    return;
+  }
+
+  const ok = confirm(`¿Eliminar curso temporal ${course.sigla || course.nombre || cid}?`);
+  if (!ok) return;
+
+  state.draft.placements = state.draft.placements && typeof state.draft.placements === "object" ? state.draft.placements : {};
+  state.draft.temp_courses = temps.filter((c) => String(c?.course_id || "") !== cid);
+  delete state.draft.placements[cid];
+
+  state.dirtyDraft = true;
+  mergeCoursesWithTemps();
+  updateDraftButtons();
+  fullRender();
+  closeCourseMenu();
+
+  const label = String(course?.sigla || course?.nombre || cid);
+  showNotice("info", `Curso temporal eliminado: ${label}.`);
+}
+
+function moveTempCourseToDisk(course) {
+  const label = String(course?.sigla || course?.nombre || "").trim() || "curso temporal";
+  showNotice("soft", `Mover a disco aún no está disponible para ${label}.`);
 }
 
 // ---------- draft terms + placements ----------
@@ -632,7 +669,13 @@ const _openMenuForCourseId = (courseId, sourceEl = null) => {
     showNotice("soft", `No se encontró el curso para abrir menú: ${cid}.`);
     return;
   }
-  openCourseMenu({ course, isDraftMode: !!state.draftMode, sourceEl: sourceEl || undefined });
+  openCourseMenu({
+    course,
+    isDraftMode: !!state.draftMode,
+    sourceEl: sourceEl || undefined,
+    onDeleteTempCourse: (c) => deleteTempCourse(c?.course_id),
+    onMoveTempToDisk: (c) => moveTempCourseToDisk(c),
+  });
 };
 
 function initHandlers() {
