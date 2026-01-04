@@ -4,12 +4,35 @@
 //
 // This module is intentionally UI-only and does NOT mutate state.
 
+import { showNotice } from "./toasts.js";
+
 let _ov = null;
 let _panel = null;
 let _escBound = false;
 let _onDeleteTempCourse = null;
 let _onMoveTempToDisk = null;
 let _onMaterialize = null;
+let _onSaveCourse = null;
+let _catalog = [];
+let _siglaSet = new Set();
+
+function normSigla(x) {
+  return String(x || "").trim().toUpperCase();
+}
+
+function uniq(arr) {
+  const out = [];
+  const seen = new Set();
+  for (const x of arr || []) {
+    const v = String(x || "").trim();
+    if (!v) continue;
+    const k = v.toUpperCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(v);
+  }
+  return out;
+}
 
 function el(tag, cls, text) {
   const n = document.createElement(tag);
@@ -72,6 +95,213 @@ function normalizeOffered(course) {
   const order = { V: 0, I: 1, P: 2 };
   out.sort((a, b) => (order[a] ?? 9) - (order[b] ?? 9) || a.localeCompare(b));
   return out;
+}
+
+function fieldRow(labelText, inputEl, helpText) {
+  const row = el("div", "form-row", "");
+  const lab = el("label", "form-label", labelText);
+  const wrap = el("div", "form-control", "");
+  wrap.appendChild(inputEl);
+  row.appendChild(lab);
+  row.appendChild(wrap);
+  if (helpText) {
+    const help = el("div", "form-help", helpText);
+    row.appendChild(help);
+  }
+  return row;
+}
+
+function makeTextInput(id, placeholder) {
+  const i = el("input", "input", "");
+  i.type = "text";
+  i.id = id;
+  i.placeholder = placeholder || "";
+  i.autocomplete = "off";
+  i.spellcheck = false;
+  return i;
+}
+
+function makeNumberInput(id, placeholder) {
+  const i = el("input", "input", "");
+  i.type = "number";
+  i.id = id;
+  i.placeholder = placeholder || "";
+  i.min = "0";
+  i.step = "1";
+  return i;
+}
+
+function makeCheckbox(id, labelText) {
+  const w = el("label", "chk", "");
+  const c = el("input", "");
+  c.type = "checkbox";
+  c.id = id;
+  const t = el("span", "chk-label", labelText);
+  w.appendChild(c);
+  w.appendChild(t);
+  return { wrap: w, input: c };
+}
+
+function makeSelect(id, options) {
+  const s = el("select", "select", "");
+  s.id = id;
+  for (const opt of options || []) {
+    const o = el("option", "", opt.value);
+    o.value = opt.value;
+    o.textContent = opt.label;
+    if (opt.selected) o.selected = true;
+    s.appendChild(o);
+  }
+  return s;
+}
+
+function createChip(text, onRemove) {
+  const chip = el("span", "chip", "");
+  const txt = el("span", "chip-text", text);
+  const x = el("button", "chip-x", "×");
+  x.type = "button";
+  x.addEventListener("click", () => onRemove?.());
+  chip.appendChild(txt);
+  chip.appendChild(x);
+  return chip;
+}
+
+function makeSuggestList() {
+  const box = el("div", "suggest", "");
+  box.style.display = "none";
+  return box;
+}
+
+function buildSuggestions(items, q) {
+  const qq = String(q || "").trim().toUpperCase();
+  if (!qq) return [];
+  const out = [];
+  for (const it of items || []) {
+    const sig = normSigla(it.sigla);
+    const name = String(it.nombre || "").toUpperCase();
+    if (sig.includes(qq) || name.includes(qq)) out.push(it);
+    if (out.length >= 8) break;
+  }
+  out.sort((a, b) => {
+    const as = normSigla(a.sigla);
+    const bs = normSigla(b.sigla);
+    const ap = as.startsWith(qq) ? 0 : 1;
+    const bp = bs.startsWith(qq) ? 0 : 1;
+    if (ap !== bp) return ap - bp;
+    return as.localeCompare(bs);
+  });
+  return out.slice(0, 8);
+}
+
+function makeChipInput({ id, placeholder, catalog, siglaSet, onSoftUnknown }) {
+  const root = el("div", "chip-input", "");
+  root.id = id;
+
+  const chipsRow = el("div", "chips", "");
+  const input = makeTextInput(id + "_input", placeholder);
+  const suggest = makeSuggestList();
+
+  const chips = [];
+
+  function renderSuggest(list) {
+    suggest.innerHTML = "";
+    if (!list.length) {
+      suggest.style.display = "none";
+      return;
+    }
+    for (const it of list) {
+      const b = el("button", "suggest-item", "");
+      b.type = "button";
+      const sigDiv = el("div", "suggest-sigla", normSigla(it.sigla));
+      const nameDiv = el("div", "suggest-name", it.nombre || "");
+      b.appendChild(sigDiv);
+      b.appendChild(nameDiv);
+      b.addEventListener("click", () => {
+        addChip(normSigla(it.sigla), false);
+        input.focus();
+      });
+      suggest.appendChild(b);
+    }
+    suggest.style.display = "block";
+  }
+
+  function refreshSuggest() {
+    const list = buildSuggestions(catalog, input.value);
+    renderSuggest(list);
+  }
+
+  function removeAt(idx) {
+    const it = chips[idx];
+    if (!it) return;
+    chips.splice(idx, 1);
+    chipsRow.removeChild(it.el);
+  }
+
+  function addChip(codeRaw, emitUnknown = true) {
+    const code = normSigla(codeRaw);
+    if (!code) return;
+    if (chips.some((c) => c.code === code)) {
+      input.value = "";
+      suggest.style.display = "none";
+      return;
+    }
+
+    if (emitUnknown && siglaSet && siglaSet.has && !siglaSet.has(code)) {
+      onSoftUnknown?.(code);
+    }
+
+    const idx = chips.length;
+    const c = { code, el: null };
+    const chipEl = createChip(code, () => removeAt(idx));
+    c.el = chipEl;
+    chips.push(c);
+    chipsRow.appendChild(chipEl);
+    input.value = "";
+    suggest.style.display = "none";
+  }
+
+  input.addEventListener("input", () => refreshSuggest());
+
+  input.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") {
+      ev.preventDefault();
+      addChip(input.value, true);
+    } else if (ev.key === "Escape") {
+      suggest.style.display = "none";
+    } else if (ev.key === "Backspace" && !input.value) {
+      if (chips.length) removeAt(chips.length - 1);
+    }
+  });
+
+  input.addEventListener("blur", () => setTimeout(() => (suggest.style.display = "none"), 120));
+
+  root.appendChild(chipsRow);
+  root.appendChild(input);
+  root.appendChild(suggest);
+
+  return {
+    root,
+    getValues: () => chips.map((c) => c.code),
+    setValues: (vals) => {
+      chips.splice(0, chips.length);
+      chipsRow.innerHTML = "";
+      for (const v of uniq(vals).map(normSigla)) addChip(v, false);
+    },
+    focus: () => input.focus(),
+  };
+}
+
+function getConcsFromCatalog(catalog, fallback = ["MScB", "M", "m", "FI", "OFG", "ex"]) {
+  const set = new Set();
+  for (const c of catalog || []) {
+    const v = String(c.concentracion || c.concentración || "").trim();
+    if (v) set.add(v);
+  }
+  const arr = Array.from(set);
+  if (!arr.length) return fallback;
+  arr.sort((a, b) => a.localeCompare(b));
+  for (const f of fallback) if (!set.has(f)) arr.push(f);
+  return arr;
 }
 
 function _isTransparentColor(c) {
@@ -166,6 +396,7 @@ function renderMenu({ course, isDraftMode }) {
   const nombre = String(course?.nombre ?? fm?.nombre ?? "").trim();
   const creditos = Number(course?.creditos ?? fm?.creditos ?? fm?.créditos ?? 0) || 0;
   const concentracion = String(course?.concentracion ?? fm?.concentracion ?? fm?.["concentración"] ?? "ex").trim() || "ex";
+  const aprobado = !!(course?.aprobado ?? fm?.aprobado);
 
   const { prereq, coreq } = normalizeReqs(course);
   const offered = normalizeOffered(course);
@@ -200,38 +431,71 @@ function renderMenu({ course, isDraftMode }) {
 
   // Body
   const body = el("div", "modal-body");
-  body.appendChild(el("div", "muted", nombre || "(sin nombre)"));
-
-  const meta = el("div", "w-item");
-  const metaMain = el("div", "w-main");
-  metaMain.appendChild(el("div", "w-text", `Créditos: ${creditos}`));
-  metaMain.appendChild(el("div", "w-sub", `Concentración: ${concentracion}`));
-  metaMain.appendChild(el("div", "w-sub", `Ofrecido en: ${offered.length ? offered.join(", ") : "(sin info)"}`));
-  meta.appendChild(el("div", "w-dot menu-accent"));
-  meta.appendChild(metaMain);
-  body.appendChild(meta);
-
-  const reqBlock = el("div", "w-item");
-  const reqMain = el("div", "w-main");
-  reqMain.appendChild(el("div", "w-text", `Prerrequisitos: ${prereq.length ? prereq.join(", ") : "(ninguno)"}`));
-  reqMain.appendChild(el("div", "w-sub", `Correquisitos: ${coreq.length ? coreq.join(", ") : "(ninguno)"}`));
-  reqBlock.appendChild(el("div", "w-dot menu-accent"));
-  reqBlock.appendChild(reqMain);
-  body.appendChild(reqBlock);
-
-  const hint = el(
-    "div",
-    "form-help",
-    isDraftMode
-      ? "(Modo borrador) Próximo: editar atributos, borrar temporales, override de cursos de disco."
-      : "(Solo lectura) Activa modo borrador para editar más adelante."
-  );
-  body.appendChild(hint);
 
   // Footer
   const foot = el("div", "modal-footer");
+
   if (isTemp && isDraftMode) {
-    const materialize = el("button", "btn primary", "Materializar");
+    // Editable form for temporary courses in draft mode
+    const siglaInput = makeTextInput("edit_sigla", "Opcional (ej. TMP-001)");
+    siglaInput.value = sigla;
+
+    const nombreInput = makeTextInput("edit_nombre", "Nombre del curso");
+    nombreInput.value = nombre;
+
+    const creditosInput = makeNumberInput("edit_creditos", "Créditos");
+    creditosInput.value = creditos || "";
+
+    const concs = getConcsFromCatalog(_catalog, ["MScB", "M", "m", "FI", "OFG", "ex"]);
+    if (concentracion && !concs.includes(concentracion)) concs.push(concentracion);
+    const concSel = makeSelect(
+      "edit_conc",
+      concs.map((v) => ({ value: v, label: v, selected: v === concentracion }))
+    );
+
+    const offeredWrap = el("div", "offered", "");
+    const ckI = makeCheckbox("edit_off_I", "I");
+    const ckP = makeCheckbox("edit_off_P", "P");
+    const ckV = makeCheckbox("edit_off_V", "V");
+    ckI.input.checked = offered.includes("I");
+    ckP.input.checked = offered.includes("P");
+    ckV.input.checked = offered.includes("V");
+    offeredWrap.appendChild(ckI.wrap);
+    offeredWrap.appendChild(ckP.wrap);
+    offeredWrap.appendChild(ckV.wrap);
+
+    const chipsPrereq = makeChipInput({
+      id: "edit_prer",
+      placeholder: "Escribe una sigla y Enter…",
+      catalog: _catalog,
+      siglaSet: _siglaSet,
+      onSoftUnknown: (code) => showNotice?.("soft", `Requisito inexistente: ${code}`),
+    });
+
+    const chipsCoreq = makeChipInput({
+      id: "edit_coreq",
+      placeholder: "Escribe una sigla y Enter…",
+      catalog: _catalog,
+      siglaSet: _siglaSet,
+      onSoftUnknown: (code) => showNotice?.("soft", `Correquisito inexistente: ${code}`),
+    });
+
+    chipsPrereq.setValues(prereq);
+    chipsCoreq.setValues(coreq);
+
+    const aprobadoChk = makeCheckbox("edit_aprobado", "Aprobado");
+    aprobadoChk.input.checked = aprobado;
+
+    body.appendChild(fieldRow("Sigla", siglaInput, "Opcional. Si la dejas vacía se mantiene la actual."));
+    body.appendChild(fieldRow("Nombre", nombreInput));
+    body.appendChild(fieldRow("Créditos", creditosInput));
+    body.appendChild(fieldRow("Prerrequisitos", chipsPrereq.root, "Agrega con Enter. Se sugieren cursos existentes."));
+    body.appendChild(fieldRow("Correquisitos", chipsCoreq.root, "Agrega con Enter. Deben dictarse en el mismo semestre."));
+    body.appendChild(fieldRow("Ofrecido en", offeredWrap));
+    body.appendChild(fieldRow("Concentración", concSel));
+    body.appendChild(fieldRow("", aprobadoChk.wrap));
+
+    const materialize = el("button", "btn", "Materializar");
     materialize.type = "button";
     if (typeof _onMaterialize === "function") materialize.addEventListener("click", () => _onMaterialize(course));
     else materialize.disabled = true;
@@ -248,11 +512,82 @@ function renderMenu({ course, isDraftMode }) {
     if (typeof _onMoveTempToDisk === "function") move.addEventListener("click", () => _onMoveTempToDisk(course));
     else move.disabled = true;
     foot.appendChild(move);
+
+    const cancel = el("button", "btn", "Cancelar");
+    cancel.type = "button";
+    cancel.addEventListener("click", closeCourseMenu);
+    foot.appendChild(cancel);
+
+    const save = el("button", "btn primary", "Guardar");
+    save.type = "button";
+    if (typeof _onSaveCourse === "function") {
+      save.addEventListener("click", () => {
+        const offeredSel = [];
+        if (ckI.input.checked) offeredSel.push("I");
+        if (ckP.input.checked) offeredSel.push("P");
+        if (ckV.input.checked) offeredSel.push("V");
+
+        const form = {
+          sigla: normSigla(siglaInput.value) || sigla,
+          nombre: String(nombreInput.value || "").trim(),
+          creditos: Number(String(creditosInput.value || "0").trim() || 0),
+          prerrequisitos: chipsPrereq.getValues(),
+          correquisitos: chipsCoreq.getValues(),
+          semestreOfrecido: offeredSel,
+          concentracion: String(concSel.value || "ex").trim() || "ex",
+          aprobado: !!aprobadoChk.input.checked,
+        };
+
+        if (!form.nombre) {
+          showNotice?.("soft", "El nombre del curso está vacío.");
+          return;
+        }
+        if (!(Number.isFinite(form.creditos) && form.creditos > 0)) {
+          showNotice?.("soft", "Los créditos deben ser un número positivo.");
+          return;
+        }
+
+        _onSaveCourse(course, form);
+      });
+    } else {
+      save.disabled = true;
+    }
+    foot.appendChild(save);
+  } else {
+    // Read-only view
+    body.appendChild(el("div", "muted", nombre || "(sin nombre)"));
+
+    const meta = el("div", "w-item");
+    const metaMain = el("div", "w-main");
+    metaMain.appendChild(el("div", "w-text", `Créditos: ${creditos}`));
+    metaMain.appendChild(el("div", "w-sub", `Concentración: ${concentracion}`));
+    metaMain.appendChild(el("div", "w-sub", `Ofrecido en: ${offered.length ? offered.join(", ") : "(sin info)"}`));
+    meta.appendChild(el("div", "w-dot menu-accent"));
+    meta.appendChild(metaMain);
+    body.appendChild(meta);
+
+    const reqBlock = el("div", "w-item");
+    const reqMain = el("div", "w-main");
+    reqMain.appendChild(el("div", "w-text", `Prerrequisitos: ${prereq.length ? prereq.join(", ") : "(ninguno)"}`));
+    reqMain.appendChild(el("div", "w-sub", `Correquisitos: ${coreq.length ? coreq.join(", ") : "(ninguno)"}`));
+    reqBlock.appendChild(el("div", "w-dot menu-accent"));
+    reqBlock.appendChild(reqMain);
+    body.appendChild(reqBlock);
+
+    const hint = el(
+      "div",
+      "form-help",
+      isDraftMode
+        ? "(Modo borrador) Próximo: editar atributos, borrar temporales, override de cursos de disco."
+        : "(Solo lectura) Activa modo borrador para editar más adelante."
+    );
+    body.appendChild(hint);
+
+    const ok = el("button", "btn primary", "Cerrar");
+    ok.type = "button";
+    ok.addEventListener("click", closeCourseMenu);
+    foot.appendChild(ok);
   }
-  const ok = el("button", "btn primary", "Cerrar");
-  ok.type = "button";
-  ok.addEventListener("click", closeCourseMenu);
-  foot.appendChild(ok);
 
   _panel.appendChild(h);
   _panel.appendChild(body);
@@ -266,11 +601,17 @@ export function openCourseMenu({
   onDeleteTempCourse = null,
   onMoveTempToDisk = null,
   onMaterialize = null,
+  onSaveCourse = null,
+  catalog = [],
+  siglaSet = null,
 } = {}) {
   ensureDOM();
   _onDeleteTempCourse = typeof onDeleteTempCourse === "function" ? onDeleteTempCourse : null;
   _onMoveTempToDisk = typeof onMoveTempToDisk === "function" ? onMoveTempToDisk : null;
   _onMaterialize = typeof onMaterialize === "function" ? onMaterialize : null;
+  _onSaveCourse = typeof onSaveCourse === "function" ? onSaveCourse : null;
+  _catalog = Array.isArray(catalog) ? catalog : [];
+  _siglaSet = siglaSet instanceof Set ? siglaSet : new Set(siglaSet ? Array.from(siglaSet) : []);
   if (!course) return;
   // Pick accent color from the rendered course element (best source of truth).
   const accent = _pickAccentFromSourceEl(sourceEl);
