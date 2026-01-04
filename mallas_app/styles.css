@@ -389,8 +389,14 @@ pre{white-space:pre-wrap;word-break:break-word;background:var(--surface);border:
   background:var(--info);
 }
 .btn.danger{
-  border-color:#f3b0b0;
-  background:var(--bad);
+  border-color:color-mix(in srgb, #f45c5c 70%, #f3b0b0);
+  background:color-mix(in srgb, var(--bad) 70%, #ff7a7a);
+  color:#4a0c0c;
+}
+:root[data-theme="dark"] .btn.danger{
+  border-color:color-mix(in srgb, #e66d6d 55%, #f3b0b0);
+  background:color-mix(in srgb, var(--bad) 82%, #b62323);
+  color:#ffdede;
 }
 
 /* Form layout (course creator modal) */
