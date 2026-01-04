@@ -34,6 +34,10 @@ let MATERIALIZE_ALL_BUSY = false; // lock para materializar todos los temporales
 const $ = byId;
 const on = (id, ev, fn) => $(id)?.addEventListener(ev, fn);
 
+function setRealCourses(allCourses) {
+  state._realCourses = Array.isArray(allCourses) ? allCourses.filter((c) => !c?.is_temp) : [];
+}
+
 // ---------- debug (colors/categories) ----------
 // Actívalo abriendo la app con:  http://localhost:PORT/?debugColors=1
 const DEBUG_COLORS = new URLSearchParams(location.search).has("debugColors");
@@ -185,7 +189,7 @@ async function loadAll() {
 
   // Keep a reference to the real course list from the backend.
   // We'll merge draft.temp_courses on top for runtime.
-  state._realCourses = Array.isArray(all?.courses) ? all.courses : [];
+  setRealCourses(all?.courses);
 
   setData({ config, all, draft });
   mergeCoursesWithTemps();
@@ -260,6 +264,97 @@ function mergeCoursesWithTemps() {
   // Replace array reference so unlock/warnings can detect changes.
   state.all.courses = mergeTempCourses(real, state.draft);
   rebuildMaps();
+}
+
+function currentPlacementForCourse(course) {
+  const cid = String(course?.course_id || "").trim();
+  if (!cid) return null;
+  if (state.draft?.placements && typeof state.draft.placements === "object" && state.draft.placements[cid]) {
+    return String(state.draft.placements[cid]);
+  }
+  return String(course?.term_id || "");
+}
+
+function splitReqsForForm(course) {
+  const fm = course?.frontmatter || {};
+  const raw = course?.prerrequisitos ?? fm?.prerrequisitos ?? [];
+  const parsed = normalizePrereqs(raw);
+  const prereq = parsed.filter((p) => !p.isCo).map((p) => p.code);
+  const coreq = parsed.filter((p) => p.isCo).map((p) => p.code);
+  const fmCoreqs = Array.isArray(course?.corequisitos ?? fm?.corequisitos) ? course.corequisitos ?? fm.corequisitos : [];
+  for (const c of fmCoreqs) {
+    const cc = String(c || "").trim();
+    if (cc && !coreq.includes(cc)) coreq.push(cc);
+  }
+  return { prereq, coreq };
+}
+
+function normalizeOfferedList(raw) {
+  const list = Array.isArray(raw)
+    ? raw
+    : typeof raw === "string"
+      ? String(raw)
+          .split(",")
+          .map((x) => x.trim())
+          .filter(Boolean)
+      : [];
+  const valid = new Set(["I", "P", "V"]);
+  const out = [];
+  for (const x of list) {
+    const v = String(x || "").toUpperCase();
+    if (valid.has(v) && !out.includes(v)) out.push(v);
+  }
+  return out;
+}
+
+function courseToFormValues(course) {
+  const fm = course?.frontmatter || {};
+  const { prereq, coreq } = splitReqsForForm(course);
+  const offered = normalizeOfferedList(course?.semestreOfrecido ?? fm?.semestreOfrecido);
+  return {
+    sigla: course?.sigla ?? fm?.sigla,
+    nombre: course?.nombre ?? fm?.nombre,
+    creditos: course?.creditos ?? course?.créditos ?? fm?.creditos ?? fm?.créditos,
+    concentracion: course?.concentracion ?? course?.concentración ?? fm?.concentracion ?? fm?.["concentración"] ?? "ex",
+    prerrequisitos: prereq,
+    correquisitos: coreq,
+    semestreOfrecido: offered,
+  };
+}
+
+function applyUpdatedCourseInState(updatedCourse) {
+  if (!updatedCourse || !updatedCourse.course_id) return false;
+  const cid = String(updatedCourse.course_id);
+  const mergeOne = (arr) => {
+    let touched = false;
+    const out = (Array.isArray(arr) ? arr : []).map((c) => {
+      if (String(c?.course_id || "") !== cid) return c;
+      touched = true;
+      return { ...c, ...updatedCourse, frontmatter: updatedCourse.frontmatter || c.frontmatter };
+    });
+    return { out, touched };
+  };
+
+  const realRes = mergeOne(state._realCourses || []);
+  if (realRes.touched) state._realCourses = realRes.out;
+
+  const allRes = mergeOne(state.all?.courses || []);
+  if (allRes.touched && state.all) state.all.courses = allRes.out;
+
+  if (realRes.touched || allRes.touched) {
+    mergeCoursesWithTemps();
+    fullRenderMod();
+    return true;
+  }
+  return false;
+}
+
+async function reloadAllCourses({ reloadDraft = false } = {}) {
+  const [all, draft] = await Promise.all([api.getAll(), reloadDraft ? api.getDraft() : Promise.resolve(state.draft)]);
+  setRealCourses(all?.courses);
+  setData({ config: state.config, all, draft: reloadDraft ? draft : state.draft });
+  mergeCoursesWithTemps();
+  fullRenderMod();
 }
 
 function openTempCourseCreator(termId) {
@@ -436,6 +531,103 @@ async function materializeAllTempCourses() {
       btn.textContent = prevLabel || "Materializar temporales";
     }
     updateDraftButtons();
+  }
+}
+
+async function approveCourseOnDisk(course, approved) {
+  if (!course?.course_id) return;
+  try {
+    const res = await api.approveCourse(course.course_id, approved);
+    if (res?.course) {
+      applyUpdatedCourseInState(res.course);
+    } else {
+      await reloadAllCourses({ reloadDraft: false });
+    }
+    showNotice("info", approved ? "Curso aprobado." : "Curso marcado como no aprobado.");
+    closeCourseMenu();
+  } catch (e) {
+    showNotice("hard", String(e?.message || e));
+  }
+}
+
+async function openEditCourseModal(course) {
+  if (!course) return;
+  const term_id = currentPlacementForCourse(course);
+  const catalog = Array.isArray(state.all?.courses) ? state.all.courses : [];
+  const siglaSet = listAllSiglas(catalog);
+  const baseValues = courseToFormValues(course);
+  openCreateCourseModal({
+    term_id,
+    catalog,
+    siglaSet,
+    mode: "edit",
+    submitLabel: "Guardar",
+    title: `Editar curso (${term_id || ""})`,
+    initialValues: baseValues,
+    onSubmit: async (form) => {
+      const combinedPrereq = (Array.isArray(form.prerrequisitos) ? form.prerrequisitos : []).concat(
+        (Array.isArray(form.correquisitos) ? form.correquisitos : []).map((c) => `${c}(c)`)
+      );
+      const payload = {
+        course_id: course.course_id,
+        frontmatter: {
+          sigla: form.sigla || baseValues.sigla,
+          nombre: form.nombre || baseValues.nombre || "",
+          creditos: form.creditos,
+          concentracion: form.concentracion,
+          prerrequisitos: combinedPrereq,
+          semestreOfrecido: form.semestreOfrecido,
+        },
+        correquisitos: form.correquisitos,
+      };
+      try {
+        const res = await api.updateCourse(payload);
+        if (res?.course) {
+          applyUpdatedCourseInState(res.course);
+        } else {
+          await reloadAllCourses({ reloadDraft: false });
+        }
+        showNotice("info", "Curso actualizado.");
+        closeCourseMenu();
+      } catch (e) {
+        showNotice("hard", String(e?.message || e));
+      }
+    },
+  });
+}
+
+function duplicateCourseToTerm(course) {
+  if (!state.draftMode) {
+    showNotice("soft", "Activa modo borrador para duplicar cursos.");
+    return;
+  }
+  if (!state?.draft || typeof state.draft !== "object") {
+    showNotice("soft", "No hay borrador cargado.");
+    return;
+  }
+  const target = prompt("Nuevo período (formato YYYY-S, ejemplo 2024-1):", currentPlacementForCourse(course) || "");
+  const term_id = String(target || "").trim();
+  if (!term_id || !TERM_RE.test(term_id)) {
+    showNotice("hard", "Período inválido.");
+    return;
+  }
+
+  try {
+    ensureDraftTempCourses(state.draft);
+    const catalog = Array.isArray(state.all?.courses) ? state.all.courses : [];
+    const siglaSet = listAllSiglas(catalog);
+    const form = courseToFormValues(course);
+    const temp = makeTempCourse(form, term_id, { existingSiglas: siglaSet });
+    addTempCourseToDraft(state.draft, temp, term_id);
+    state.dirtyDraft = true;
+    mergeCoursesWithTemps();
+    updateDraftButtons();
+    fullRenderMod();
+    showNotice("info", `Curso duplicado en ${term_id}: ${temp.sigla}.`);
+    closeCourseMenu();
+  } catch (e) {
+    const kind = e?.noticeKind === "soft" ? "soft" : "hard";
+    showNotice(kind, String(e?.message || e));
   }
 }
 
@@ -806,6 +998,9 @@ const _openMenuForCourseId = (courseId, sourceEl = null) => {
     onDeleteTempCourse: (c) => deleteTempCourse(c?.course_id),
     onMoveTempToDisk: (c) => moveTempCourseToDisk(c),
     onMaterialize: (c) => materializeTempCourse(c),
+    onApprove: (c, approved) => approveCourseOnDisk(c, approved),
+    onEdit: (c) => openEditCourseModal(c),
+    onDuplicate: (c) => duplicateCourseToTerm(c),
   });
 };
 

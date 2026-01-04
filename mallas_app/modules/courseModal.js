@@ -313,9 +313,15 @@ export function openCreateCourseModal({
   catalog = [],
   siglaSet = null,
   defaultConcentracion = "ex",
+  initialValues = null,
+  mode = "create",
+  submitLabel = null,
+  title = null,
   onSubmit,
   onCancel,
 } = {}) {
+  const initial = initialValues || {};
+  const isEdit = String(mode || "").toLowerCase() === "edit";
   const ov = buildOverlay();
   const body = $("courseModalBody");
   const btnClose = $("courseModalClose");
@@ -324,28 +330,49 @@ export function openCreateCourseModal({
 
   // Title
   const titleEl = ov.querySelector?.(".modal-title");
-  if (titleEl) titleEl.textContent = `Crear curso temporal (${term_id || ""})`;
+  if (titleEl) titleEl.textContent = title || (isEdit ? `Editar curso (${term_id || ""})` : `Crear curso temporal (${term_id || ""})`);
 
   body.innerHTML = "";
 
   const sigla = makeTextInput("tmp_sigla", "Opcional (ej. TMP-001)");
+  sigla.value = String(initial.sigla || "");
   const nombre = makeTextInput("tmp_nombre", "Nombre del curso");
+  nombre.value = String(initial.nombre || "").trim();
   const creditos = makeNumberInput("tmp_creditos", "Créditos");
+  if (initial.creditos != null && initial.creditos !== "") {
+    creditos.value = String(initial.creditos);
+  }
 
   const concs = getConcsFromCatalog(catalog);
+  const concValue = String(initial.concentracion || initial["concentración"] || defaultConcentracion || "ex").trim() || "ex";
   const concSel = makeSelect(
     "tmp_conc",
-    concs.map((v) => ({ value: v, label: v, selected: v === defaultConcentracion }))
+    concs.map((v) => ({ value: v, label: v, selected: v === concValue }))
   );
 
   const offeredWrap = el("div", "offered", "");
   const ckI = makeCheckbox("tmp_off_I", "I");
   const ckP = makeCheckbox("tmp_off_P", "P");
   const ckV = makeCheckbox("tmp_off_V", "V");
-  // Default: I+P checked
-  ckI.input.checked = true;
-  ckP.input.checked = true;
-  ckV.input.checked = false;
+  // Default: I+P checked, but allow overrides via initialValues
+  const offeredListRaw = Array.isArray(initial.semestreOfrecido)
+    ? initial.semestreOfrecido
+    : typeof initial.semestreOfrecido === "string"
+      ? String(initial.semestreOfrecido)
+          .split(",")
+          .map((x) => x.trim())
+          .filter(Boolean)
+      : [];
+  if (offeredListRaw.length) {
+    const set = new Set(offeredListRaw.map((x) => String(x || "").toUpperCase()));
+    ckI.input.checked = set.has("I");
+    ckP.input.checked = set.has("P");
+    ckV.input.checked = set.has("V");
+  } else {
+    ckI.input.checked = true;
+    ckP.input.checked = true;
+    ckV.input.checked = false;
+  }
   offeredWrap.appendChild(ckI.wrap);
   offeredWrap.appendChild(ckP.wrap);
   offeredWrap.appendChild(ckV.wrap);
@@ -357,6 +384,7 @@ export function openCreateCourseModal({
     siglaSet,
     onSoftUnknown: (code) => showNotice?.("soft", `Requisito inexistente: ${code}`),
   });
+  if (Array.isArray(initial.prerrequisitos)) chipsPrereq.setValues(initial.prerrequisitos);
 
   const chipsCoreq = makeChipInput({
     id: "tmp_coreq",
@@ -365,6 +393,7 @@ export function openCreateCourseModal({
     siglaSet,
     onSoftUnknown: (code) => showNotice?.("soft", `Correquisito inexistente: ${code}`),
   });
+  if (Array.isArray(initial.correquisitos)) chipsCoreq.setValues(initial.correquisitos);
 
   body.appendChild(fieldRow("Sigla", sigla, "Opcional. Si la dejas vacía se autogenera."));
   body.appendChild(fieldRow("Nombre", nombre));
@@ -410,6 +439,7 @@ export function openCreateCourseModal({
 
   btnClose.onclick = onClose;
   btnCancel.onclick = onClose;
+  btnCreate.textContent = submitLabel || (isEdit ? "Guardar" : "Crear");
   btnCreate.onclick = submit;
 
   // Enter on name/credits submits

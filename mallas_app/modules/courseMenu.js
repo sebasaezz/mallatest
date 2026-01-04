@@ -10,6 +10,9 @@ let _escBound = false;
 let _onDeleteTempCourse = null;
 let _onMoveTempToDisk = null;
 let _onMaterialize = null;
+let _onApprove = null;
+let _onEdit = null;
+let _onDuplicate = null;
 
 function el(tag, cls, text) {
   const n = document.createElement(tag);
@@ -230,25 +233,59 @@ function renderMenu({ course, isDraftMode }) {
 
   // Footer
   const foot = el("div", "modal-footer");
+  const actions = [];
+  const footerButtons = [];
+
   if (isTemp && isDraftMode) {
     const materialize = el("button", "btn primary", "Materializar");
     materialize.type = "button";
     if (typeof _onMaterialize === "function") materialize.addEventListener("click", () => _onMaterialize(course));
     else materialize.disabled = true;
-    foot.appendChild(materialize);
+    footerButtons.push(materialize);
 
     const del = el("button", "btn", "Eliminar");
     del.type = "button";
     if (typeof _onDeleteTempCourse === "function") del.addEventListener("click", () => _onDeleteTempCourse(course));
     else del.disabled = true;
-    foot.appendChild(del);
+    footerButtons.push(del);
 
     const move = el("button", "btn", "Mover a disco");
     move.type = "button";
     if (typeof _onMoveTempToDisk === "function") move.addEventListener("click", () => _onMoveTempToDisk(course));
     else move.disabled = true;
-    foot.appendChild(move);
+    footerButtons.push(move);
   }
+
+  if (!isTemp) {
+    const isApproved = !!(course?.aprobado ?? fm?.aprobado);
+    const approveBtn = el("button", "btn", isApproved ? "Desaprobar" : "Aprobar");
+    approveBtn.type = "button";
+    approveBtn.classList.add(isApproved ? "warn" : "primary");
+    if (typeof _onApprove === "function") approveBtn.addEventListener("click", () => _onApprove(course, !isApproved));
+    else approveBtn.disabled = true;
+    actions.push(approveBtn);
+
+    const editBtn = el("button", "btn", "Editar datos");
+    editBtn.type = "button";
+    if (typeof _onEdit === "function") editBtn.addEventListener("click", () => _onEdit(course));
+    else editBtn.disabled = true;
+    actions.push(editBtn);
+
+    if (isDraftMode) {
+      const dupBtn = el("button", "btn", "Duplicar a otro período");
+      dupBtn.type = "button";
+      if (typeof _onDuplicate === "function") dupBtn.addEventListener("click", () => _onDuplicate(course));
+      else dupBtn.disabled = true;
+      actions.push(dupBtn);
+    }
+  }
+
+  const actionsWrap = actions.length ? el("div", "menu-actions") : null;
+  if (actionsWrap) {
+    for (const a of actions) actionsWrap.appendChild(a);
+    foot.appendChild(actionsWrap);
+  }
+  for (const btn of footerButtons) foot.appendChild(btn);
   const ok = el("button", "btn primary", "Cerrar");
   ok.type = "button";
   ok.addEventListener("click", closeCourseMenu);
@@ -266,11 +303,17 @@ export function openCourseMenu({
   onDeleteTempCourse = null,
   onMoveTempToDisk = null,
   onMaterialize = null,
+  onApprove = null,
+  onEdit = null,
+  onDuplicate = null,
 } = {}) {
   ensureDOM();
   _onDeleteTempCourse = typeof onDeleteTempCourse === "function" ? onDeleteTempCourse : null;
   _onMoveTempToDisk = typeof onMoveTempToDisk === "function" ? onMoveTempToDisk : null;
   _onMaterialize = typeof onMaterialize === "function" ? onMaterialize : null;
+  _onApprove = typeof onApprove === "function" ? onApprove : null;
+  _onEdit = typeof onEdit === "function" ? onEdit : null;
+  _onDuplicate = typeof onDuplicate === "function" ? onDuplicate : null;
   if (!course) return;
   // Pick accent color from the rendered course element (best source of truth).
   const accent = _pickAccentFromSourceEl(sourceEl);
