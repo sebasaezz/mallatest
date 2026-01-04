@@ -13,7 +13,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 APP_NAME = "malla_app"
-APP_VERSION = "0.9.51"
+APP_VERSION = "0.9.52"
 
 TERM_RE = re.compile(r"^(?P<y>\d{4})-(?P<s>[012])(?:\b|$)")
 COURSE_DIRS = [",Cursos", "Cursos"]
@@ -445,6 +445,115 @@ def handler_factory(b: Path, ui_dir):
                         200,
                         "application/json; charset=utf-8",
                         jdump({"ok": True, "deleted": existed}).encode("utf-8"),
+                    )
+                except Exception as e:
+                    return send(
+                        self,
+                        400,
+                        "application/json; charset=utf-8",
+                        jdump({"ok": False, "error": str(e)}).encode("utf-8"),
+                    )
+
+            if path == "/api/materialize":
+                try:
+                    n = int(self.headers.get("Content-Length", "0"))
+                    raw = self.rfile.read(n) if n > 0 else b"{}"
+                    payload = json.loads(raw.decode("utf-8"))
+                    if not isinstance(payload, dict):
+                        raise ValueError("Payload inválido")
+
+                    term_id = str(payload.get("term_id", "") or "").strip()
+                    fm = payload.get("frontmatter") if isinstance(payload.get("frontmatter"), dict) else {}
+
+                    sigla = str(payload.get("sigla") or fm.get("sigla") or "").strip()
+                    nombre = str(payload.get("nombre") or fm.get("nombre") or "").strip()
+                    creditos = payload.get("creditos")
+                    if creditos is None:
+                        creditos = fm.get("creditos", fm.get("créditos"))
+                    aprobado = payload.get("aprobado") if payload.get("aprobado") is not None else fm.get("aprobado")
+                    concentracion = payload.get("concentracion") or payload.get("concentración")
+                    if concentracion is None:
+                        concentracion = fm.get("concentracion", fm.get("concentración"))
+                    prerrequisitos = payload.get("prerrequisitos", fm.get("prerrequisitos"))
+                    semestre_ofrecido = payload.get("semestreOfrecido", fm.get("semestreOfrecido"))
+
+                    if not term_id or not TERM_RE.match(term_id):
+                        raise ValueError("term_id inválido")
+                    if not sigla:
+                        raise ValueError("sigla obligatoria")
+
+                    term_match = TERM_RE.match(term_id)
+                    sem_val = int(term_match.group("s")) if term_match else 0
+                    year_val = int(term_match.group("y")) if term_match else date.today().year
+
+                    fm.setdefault("sigla", sigla)
+                    if nombre:
+                        fm.setdefault("nombre", nombre)
+                    if creditos is not None:
+                        fm.setdefault("creditos", creditos)
+                        fm.setdefault("créditos", creditos if creditos is not None else fm.get("creditos"))
+                    if aprobado is not None:
+                        fm.setdefault("aprobado", aprobado)
+                    else:
+                        fm.setdefault("aprobado", False)
+                    if concentracion is not None:
+                        fm.setdefault("concentracion", concentracion)
+                    if prerrequisitos is not None:
+                        fm.setdefault("prerrequisitos", prerrequisitos)
+                    if semestre_ofrecido is not None:
+                        fm.setdefault("semestreOfrecido", semestre_ofrecido)
+                    fm.setdefault("semestre", sem_val)
+                    fm.setdefault("año", year_val)
+                    fm.setdefault("sección", fm.get("sección", 0))
+                    fm.setdefault("notaObtenida", fm.get("notaObtenida", 0))
+                    fm.setdefault("dg-publish", fm.get("dg-publish", True))
+
+                    term_dir = (b / term_id).resolve()
+                    term_dir.mkdir(parents=True, exist_ok=True)
+                    if not term_dir.is_dir():
+                        raise ValueError(f"No se pudo crear directorio de período: {term_dir}")
+
+                    courses_root, has_courses = find_courses_root(term_dir)
+                    if not has_courses:
+                        courses_root = term_dir / COURSE_DIRS[0]
+                        courses_root.mkdir(parents=True, exist_ok=True)
+
+                    safe_sigla = re.sub(r"[^A-Za-z0-9._-]+", "_", sigla) or "curso"
+                    md_path = (courses_root / f"{safe_sigla}.md").resolve()
+                    if not str(md_path).startswith(str(term_dir)):
+                        raise ValueError("Ruta de destino inválida")
+
+                    try:
+                        import yaml  # type: ignore
+
+                        fm_text = yaml.safe_dump(fm, allow_unicode=True, sort_keys=False)
+                    except Exception:
+                        fm_text = jdump(fm, indent=2)
+
+                    dataview_block = """```dataviewjs
+let notas = dv.pages().where(b=>b.file.frontmatter.Curso === dv.current().file.name).file.frontmatter.notaObtenida
+let pond = dv.pages().where(b=>b.file.frontmatter.Curso === dv.current().file.name).file.frontmatter.Ponderación
+let sigla = dv.pages().where(b=>b.file.frontmatter.Curso === dv.current().file.name).file.link
+let arr = []
+let nf = 0
+for(i=0;i<=notas.length-1;i++){
+    arr.push([sigla[i],notas[i],pond[i]])
+    nf = nf + notas[i]*pond[i]
+}
+nf = Math.round(nf*10)/10
+dv.table([\"Evaluación\",\"Nota\",\"Ponderación\"],arr)
+dv.paragraph(\"$$\\\\Huge{\\\\text{NFC}=\"+nf+\"}$$\")
+```"""
+
+                    md_body = f"---\n{fm_text}\n---\n\n{dataview_block}\n"
+                    with lock:
+                        md_path.write_text(md_body, encoding="utf-8")
+
+                    return send(
+                        self,
+                        200,
+                        "application/json; charset=utf-8",
+                        jdump({"ok": True, "fileRel": rel(md_path, b)}).encode("utf-8"),
                     )
                 except Exception as e:
                     return send(
