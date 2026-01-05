@@ -24,6 +24,7 @@ import {
   mergeTempCourses,
   makeTempCourse,
   addTempCourseToDraft,
+  ensureDraftOverrides,
   listAllSiglas,
 } from "./modules/tempCourses.js";
 
@@ -315,6 +316,11 @@ function deleteTempCourse(course_id) {
   state.draft.placements = state.draft.placements && typeof state.draft.placements === "object" ? state.draft.placements : {};
   state.draft.temp_courses = temps.filter((c) => String(c?.course_id || "") !== cid);
   delete state.draft.placements[cid];
+  const overriddenId = String(course?.override_of || "").trim();
+  if (overriddenId) {
+    const overrides = ensureDraftOverrides(state.draft);
+    state.draft.overrides = overrides.filter((id) => id !== overriddenId);
+  }
 
   state.dirtyDraft = true;
   mergeCoursesWithTemps();
@@ -406,6 +412,99 @@ function updateTempCourse(course, form) {
   closeCourseMenu();
 }
 
+function overrideCourse(course, form) {
+  if (!state?.draft || typeof state.draft !== "object") {
+    showNotice("soft", "No hay borrador cargado.");
+    return;
+  }
+
+  const cid = String(course?.course_id || "").trim();
+  if (!cid) return;
+
+  const nombre = String(form?.nombre || "").trim();
+  const creditos = Number(form?.creditos) || 0;
+  if (!nombre) {
+    showNotice("soft", "El nombre del curso está vacío.");
+    return;
+  }
+  if (!(Number.isFinite(creditos) && creditos > 0)) {
+    showNotice("soft", "Los créditos deben ser un número positivo.");
+    return;
+  }
+
+  const placementTid = (state.draft?.placements && state.draft.placements[cid]) || course.term_id;
+  const term_id = String(placementTid || "").trim();
+  if (!term_id) {
+    showNotice("soft", "El curso no tiene período asignado.");
+    return;
+  }
+
+  const oldSigla = String(course.sigla || "").trim().toUpperCase();
+  let newSigla = String(form?.sigla || "").trim().toUpperCase();
+  if (!newSigla) newSigla = oldSigla;
+
+  const existing = listAllSiglas(state.all?.courses || []);
+  existing.delete(oldSigla);
+  if (existing.has(newSigla)) {
+    const base = newSigla;
+    for (let i = 0; i < 26; i++) {
+      const trial = base + String.fromCharCode(65 + i);
+      if (!existing.has(trial)) {
+        newSigla = trial;
+        break;
+      }
+    }
+  }
+
+  const prereqsArr = Array.isArray(form?.prerrequisitos) ? form.prerrequisitos.map((s) => String(s).trim()).filter(Boolean) : [];
+  const coreqsArr = Array.isArray(form?.correquisitos) ? form.correquisitos.map((s) => String(s).trim()).filter(Boolean) : [];
+  const offered = Array.isArray(form?.semestreOfrecido) ? form.semestreOfrecido : [];
+  const conc = String(form?.concentracion || "ex").trim() || "ex";
+
+  const payload = {
+    ...form,
+    sigla: newSigla,
+    nombre,
+    creditos,
+    prerrequisitos: prereqsArr,
+    correquisitos: coreqsArr,
+    semestreOfrecido: offered,
+    concentracion: conc,
+  };
+
+  let newCourse;
+  try {
+    newCourse = makeTempCourse(payload, term_id, { existingSiglas: existing });
+  } catch (e) {
+    const kind = e?.noticeKind === "soft" ? "soft" : "hard";
+    showNotice(kind, String(e?.message || e));
+    return;
+  }
+
+  newCourse.temp_kind = "override";
+  newCourse.override_of = cid;
+  newCourse.aprobado = !!form?.aprobado;
+  newCourse.frontmatter = newCourse.frontmatter && typeof newCourse.frontmatter === "object" ? newCourse.frontmatter : {};
+  newCourse.frontmatter.aprobado = newCourse.aprobado;
+
+  ensureDraftOverrides(state.draft);
+  if (!state.draft.overrides.includes(cid)) state.draft.overrides.push(cid);
+  if (state.draft.placements && typeof state.draft.placements === "object") {
+    delete state.draft.placements[cid];
+  }
+
+  addTempCourseToDraft(state.draft, newCourse, term_id);
+
+  state.dirtyDraft = true;
+  mergeCoursesWithTemps();
+  updateDraftButtons();
+  fullRenderMod();
+
+  const label = String(newCourse.sigla || newCourse.nombre || newCourse.course_id);
+  showNotice("info", `Curso temporal creado: ${label}.`);
+  closeCourseMenu();
+}
+
 function moveTempCourseToDisk(course) {
   const label = String(course?.sigla || course?.nombre || "").trim() || "curso temporal";
   showNotice("soft", `Mover a disco aún no está disponible para ${label}.`);
@@ -460,6 +559,11 @@ async function materializeTempCourse(course) {
     state.draft.temp_courses = state.draft.temp_courses.filter((c) => String(c?.course_id || "") !== cid);
     if (state.draft.placements && typeof state.draft.placements === "object") {
       delete state.draft.placements[cid];
+    }
+    const overriddenId = String(course?.override_of || "").trim();
+    if (overriddenId) {
+      const overrides = ensureDraftOverrides(state.draft);
+      state.draft.overrides = overrides.filter((id) => id !== overriddenId);
     }
 
     state.dirtyDraft = true;
@@ -886,7 +990,7 @@ const _openMenuForCourseId = (courseId, sourceEl = null) => {
     onDeleteTempCourse: (c) => deleteTempCourse(c?.course_id),
     onMoveTempToDisk: (c) => moveTempCourseToDisk(c),
     onMaterialize: (c) => materializeTempCourse(c),
-    onSaveCourse: (c, form) => updateTempCourse(c, form),
+    onSaveCourse: (c, form) => (c?.is_temp ? updateTempCourse(c, form) : overrideCourse(c, form)),
     catalog: state.all?.courses || [],
     siglaSet: listAllSiglas(state.all?.courses || []),
   });
