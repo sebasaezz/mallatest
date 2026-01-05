@@ -572,7 +572,7 @@ function renderMenu({ course, isDraftMode }) {
       "div",
       "form-help",
       isDraftMode
-        ? "(Modo borrador) Próximo: editar atributos, borrar temporales, override de cursos de disco."
+        ? "(Modo borrador) Puedes editar atributos, borrar temporales y crear overrides de cursos de disco."
         : "(Solo lectura) Activa modo borrador para editar más adelante."
     );
     body.appendChild(hint);
