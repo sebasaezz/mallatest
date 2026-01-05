@@ -39,6 +39,20 @@ export function ensureDraftTempCourses(draft) {
   if (!Array.isArray(draft.temp_courses)) draft.temp_courses = [];
   // Keep dict-like entries only.
   draft.temp_courses = draft.temp_courses.filter((x) => x && typeof x === "object");
+
+  if (!Array.isArray(draft.suppressed_courses)) draft.suppressed_courses = [];
+  else draft.suppressed_courses = draft.suppressed_courses.filter((x) => typeof x === "string");
+
+  // Keep suppressed_courses aligned with temp overrides (orig_course_id).
+  const overrideIds = new Set();
+  for (const c of draft.temp_courses) {
+    if (!c || typeof c !== "object") continue;
+    if (!c.orig_course_id) continue;
+    const origId = String(c.orig_course_id);
+    overrideIds.add(origId);
+    if (!draft.suppressed_courses.includes(origId)) draft.suppressed_courses.push(origId);
+  }
+  draft.suppressed_courses = draft.suppressed_courses.filter((id) => overrideIds.has(id));
   return draft.temp_courses;
 }
 
@@ -181,10 +195,15 @@ export function mergeTempCourses(realCourses, draft) {
   const out = [];
   const seen = new Set();
 
+  const suppressedSet = new Set(
+    Array.isArray(draft?.suppressed_courses) ? draft.suppressed_courses.map((x) => String(x)) : []
+  );
+
   const real = Array.isArray(realCourses) ? realCourses : [];
   for (const c of real) {
     if (!c || c.course_id == null) continue;
     const id = String(c.course_id);
+    if (suppressedSet.has(id)) continue;
     if (seen.has(id)) continue;
     seen.add(id);
     out.push(c);

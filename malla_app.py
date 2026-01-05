@@ -334,6 +334,7 @@ def draft_default():
         "custom_terms": [],
         "ignored_warnings": {},
         "temp_courses": [],
+        "suppressed_courses": [],
     }
 
 
@@ -360,6 +361,8 @@ def sanitize_draft(d: dict) -> dict:
     else:
         # Keep only dict-like entries to avoid crashes in the UI.
         d["temp_courses"] = [x for x in d["temp_courses"] if isinstance(x, dict)]
+    if not isinstance(d.get("suppressed_courses"), list):
+        d["suppressed_courses"] = []
     return d
 
 
