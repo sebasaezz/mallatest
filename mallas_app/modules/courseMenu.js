@@ -490,7 +490,13 @@ function renderMenu({ course, isDraftMode }) {
     body.appendChild(fieldRow("Nombre", nombreInput));
     body.appendChild(fieldRow("Créditos", creditosInput));
     body.appendChild(fieldRow("Prerrequisitos", chipsPrereq.root, "Agrega con Enter. Se sugieren cursos existentes."));
-    body.appendChild(fieldRow("Correquisitos", chipsCoreq.root, "Agrega con Enter. Deben dictarse en el mismo semestre."));
+    body.appendChild(
+      fieldRow(
+        "Correquisitos",
+        chipsCoreq.root,
+        "Agrega con Enter. Deben dictarse en el mismo semestre o en uno anterior."
+      )
+    );
     body.appendChild(fieldRow("Ofrecido en", offeredWrap));
     body.appendChild(fieldRow("Concentración", concSel));
     body.appendChild(fieldRow("", aprobadoChk.wrap));
