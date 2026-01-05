@@ -370,7 +370,13 @@ export function openCreateCourseModal({
   body.appendChild(fieldRow("Nombre", nombre));
   body.appendChild(fieldRow("Créditos", creditos));
   body.appendChild(fieldRow("Prerrequisitos", chipsPrereq.root, "Agrega con Enter. Se sugieren cursos existentes."));
-  body.appendChild(fieldRow("Correquisitos", chipsCoreq.root, "Agrega con Enter. Deben dictarse en el mismo semestre."));
+  body.appendChild(
+    fieldRow(
+      "Correquisitos",
+      chipsCoreq.root,
+      "Agrega con Enter. Deben dictarse en el mismo semestre o en uno anterior."
+    )
+  );
   body.appendChild(fieldRow("Ofrecido en", offeredWrap));
   body.appendChild(fieldRow("Concentración", concSel));
 
