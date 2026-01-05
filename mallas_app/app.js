@@ -313,6 +313,12 @@ function deleteTempCourse(course_id) {
   if (!ok) return;
 
   state.draft.placements = state.draft.placements && typeof state.draft.placements === "object" ? state.draft.placements : {};
+  if (course.orig_course_id) {
+    const origId = String(course.orig_course_id);
+    if (Array.isArray(state.draft.suppressed_courses)) {
+      state.draft.suppressed_courses = state.draft.suppressed_courses.filter((id) => id !== origId);
+    }
+  }
   state.draft.temp_courses = temps.filter((c) => String(c?.course_id || "") !== cid);
   delete state.draft.placements[cid];
 
@@ -349,6 +355,51 @@ function updateTempCourse(course, form) {
   const temps = ensureDraftTempCourses(state.draft);
   const draftCourse = temps.find((c) => String(c?.course_id || "") === cid);
   if (!draftCourse) {
+    if (!course?.is_temp) {
+      const origId = String(course?.course_id || "").trim();
+      const existingSiglas = listAllSiglas(state.all?.courses || []);
+      existingSiglas.delete(String(course?.sigla || "").trim().toUpperCase());
+
+      const termId =
+        (state.draft?.placements && state.draft.placements[origId]) ||
+        course?.term_id ||
+        "";
+
+      let tempCourse = null;
+      try {
+        tempCourse = makeTempCourse(form, termId, { existingSiglas });
+      } catch (e) {
+        const kind = e?.noticeKind === "soft" ? "soft" : "hard";
+        showNotice(kind, String(e?.message || e));
+        return;
+      }
+
+      tempCourse.orig_course_id = origId;
+      tempCourse.aprobado = !!form?.aprobado;
+      if (tempCourse.frontmatter && typeof tempCourse.frontmatter === "object") {
+        tempCourse.frontmatter.aprobado = tempCourse.aprobado;
+      }
+
+      addTempCourseToDraft(state.draft, tempCourse, termId);
+      if (Array.isArray(state.draft.suppressed_courses)) {
+        if (!state.draft.suppressed_courses.includes(origId)) state.draft.suppressed_courses.push(origId);
+      } else {
+        state.draft.suppressed_courses = [origId];
+      }
+      if (state.draft.placements && Object.prototype.hasOwnProperty.call(state.draft.placements, origId)) {
+        delete state.draft.placements[origId];
+      }
+
+      state.dirtyDraft = true;
+      mergeCoursesWithTemps();
+      updateDraftButtons();
+      fullRenderMod();
+
+      const label = String(tempCourse.sigla || tempCourse.nombre || origId);
+      showNotice("info", `Curso temporal creado: ${label}.`);
+      closeCourseMenu();
+      return;
+    }
     showNotice("soft", "Curso temporal no encontrado.");
     return;
   }
