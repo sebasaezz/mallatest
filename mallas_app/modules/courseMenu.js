@@ -538,8 +538,8 @@ function renderMenu({ course, isDraftMode }) {
           showNotice?.("soft", "El nombre del curso está vacío.");
           return;
         }
-        if (!(Number.isFinite(form.creditos) && form.creditos > 0)) {
-          showNotice?.("soft", "Los créditos deben ser un número positivo.");
+        if (!(Number.isFinite(form.creditos) && form.creditos >= 0)) {
+          showNotice?.("soft", "Los créditos no pueden ser negativos.");
           return;
         }
 
