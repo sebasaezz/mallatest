@@ -122,7 +122,7 @@ export function makeTempCourse(form, term_id, opts = {}) {
   const creditos = asInt(form?.creditos ?? form?.créditos, NaN);
 
   if (!nombre) throw softError("El nombre del curso temporal es obligatorio.");
-  if (!Number.isFinite(creditos) || creditos <= 0) throw softError("Los créditos deben ser un número positivo.");
+  if (!Number.isFinite(creditos) || creditos < 0) throw softError("Los créditos no pueden ser negativos.");
 
   let sigla = String(form?.sigla || "").trim();
   if (!sigla) sigla = nextTempSigla(existingSiglas);

@@ -342,13 +342,13 @@ function updateTempCourse(course, form) {
   if (!cid) return;
 
   const nombre = String(form?.nombre || "").trim();
-  const creditos = Number(form?.creditos) || 0;
+  const creditos = Number(form?.creditos);
   if (!nombre) {
     showNotice("soft", "El nombre del curso está vacío.");
     return;
   }
-  if (!(Number.isFinite(creditos) && creditos > 0)) {
-    showNotice("soft", "Los créditos deben ser un número positivo.");
+  if (!(Number.isFinite(creditos) && creditos >= 0)) {
+    showNotice("soft", "Los créditos no pueden ser negativos.");
     return;
   }
 
@@ -422,13 +422,13 @@ function overrideCourse(course, form) {
   if (!cid) return;
 
   const nombre = String(form?.nombre || "").trim();
-  const creditos = Number(form?.creditos) || 0;
+  const creditos = Number(form?.creditos);
   if (!nombre) {
     showNotice("soft", "El nombre del curso está vacío.");
     return;
   }
-  if (!(Number.isFinite(creditos) && creditos > 0)) {
-    showNotice("soft", "Los créditos deben ser un número positivo.");
+  if (!(Number.isFinite(creditos) && creditos >= 0)) {
+    showNotice("soft", "Los créditos no pueden ser negativos.");
     return;
   }
 
