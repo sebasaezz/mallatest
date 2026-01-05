@@ -12,7 +12,14 @@
 //   - Course element: data-course-id (or dataset.courseId / dataset.course_id)
 //   - Term container: data-term-id (or dataset.termId / dataset.term_id)
 
-import { state } from "./state.js";
+import { rebuildMaps, state } from "./state.js";
+import {
+  addTempCourseToDraft,
+  ensureDraftOverrides,
+  ensureDraftTempCourses,
+  makeOverrideCourseFromExisting,
+  mergeTempCourses,
+} from "./tempCourses.js";
 
 let _installed = false;
 let _dragCourseId = null;
@@ -254,9 +261,44 @@ export function initDragDrop(deps) {
       if (!cid || !tid) return;
 
       const draft = ensureDraft();
+      const termId = String(tid);
+
+      let course = state.maps?.courseById?.get(String(cid));
+      if (!course && Array.isArray(state.all?.courses)) {
+        course = state.all.courses.find((c) => String(c?.course_id || "") === String(cid));
+      }
+
+      if (!course) return;
+
+      if (!course.is_temp) {
+        let overrideCourse = null;
+        try {
+          overrideCourse = makeOverrideCourseFromExisting(course, termId);
+        } catch (e) {
+          console.warn("[dragdrop] failed to create override course", e);
+        }
+
+        if (overrideCourse) {
+          ensureDraftTempCourses(draft);
+          ensureDraftOverrides(draft);
+          if (!draft.overrides.includes(cid)) draft.overrides.push(cid);
+          addTempCourseToDraft(draft, overrideCourse, termId);
+          delete draft.placements[String(cid)];
+
+          const baseReal = Array.isArray(state._realCourses)
+            ? state._realCourses.filter((c) => !c?.is_temp)
+            : (Array.isArray(state.all?.courses) ? state.all.courses : []).filter((c) => !c?.is_temp);
+          state._realCourses = baseReal;
+          state.all = state.all || {};
+          state.all.courses = mergeTempCourses(baseReal, draft);
+          rebuildMaps();
+
+          cid = overrideCourse.course_id;
+        }
+      }
 
       // Update placement
-      draft.placements[String(cid)] = String(tid);
+      draft.placements[String(cid)] = termId;
 
       // Remove empty custom terms if needed
       removeEmptyCustomTerms(draft);

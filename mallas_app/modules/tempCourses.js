@@ -104,7 +104,7 @@ function asInt(x, def = 0) {
   return Number.isFinite(n) ? Math.trunc(n) : def;
 }
 
-function stableCourseId() {
+export function stableCourseId() {
   // Unique enough; persisted inside draft.
   return `tmp:${nowStamp()}:${rand6()}`;
 }
@@ -175,6 +175,52 @@ export function makeTempCourse(form, term_id, opts = {}) {
     concentracion,
     prerrequisitos,
     semestreOfrecido,
+    frontmatter,
+  };
+}
+
+export function makeOverrideCourseFromExisting(course, term_id) {
+  if (!course || typeof course !== "object") return null;
+
+  const override_of = String(course.course_id || "").trim();
+  const tid = String(term_id || course.term_id || "").trim();
+  if (!override_of || !tid) return null;
+
+  const sigla = String(course.sigla || course.frontmatter?.sigla || "").trim();
+  const nombre = String(course.nombre || course.frontmatter?.nombre || "").trim();
+  const creditos = asInt(course.creditos ?? course.créditos ?? course.frontmatter?.creditos ?? course.frontmatter?.créditos, 0);
+  const aprobado = !!(course.aprobado ?? course.frontmatter?.aprobado);
+  const concentracion =
+    String(course.concentracion || course.concentración || course.frontmatter?.concentracion || course.frontmatter?.concentración || "ex").trim() ||
+    "ex";
+  const prerrequisitos = normalizePrereqList(course.prerrequisitos ?? course.frontmatter?.prerrequisitos);
+  const semestreOfrecido = normalizeOffered(course.semestreOfrecido ?? course.frontmatter?.semestreOfrecido);
+
+  const frontmatter = {
+    ...(course.frontmatter && typeof course.frontmatter === "object" ? course.frontmatter : {}),
+    sigla,
+    nombre,
+    creditos,
+    aprobado,
+    concentracion,
+    prerrequisitos,
+    semestreOfrecido,
+  };
+
+  return {
+    is_temp: true,
+    temp_kind: "override",
+    override_of,
+    course_id: stableCourseId(),
+    term_id: tid,
+    sigla,
+    nombre,
+    creditos,
+    aprobado,
+    concentracion,
+    prerrequisitos,
+    semestreOfrecido,
+    fileRel: course.fileRel || "",
     frontmatter,
   };
 }
