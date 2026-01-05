@@ -7,10 +7,12 @@
 // - Works across re-renders (DOM changes): selection + blink are re-applied.
 //
 // Notes:
-// - We treat prerequisites in `prerrequisitos` as edges (req -> dependent).
-// - Correquisites encoded as "SIGLA(c)" are ignored for unlock graph.
+// - We treat prerequisites *and* correquisites in `prerrequisitos` as edges (req -> dependent).
+// - A course only participates in the unlock graph if its prereqs (< term) and coreqs (<= term) are satisfied.
 
 import { state } from "./state.js";
+
+const DEBUG_UNLOCK = false;
 
 let _installed = false;
 let _enabled = true;
@@ -21,6 +23,7 @@ let _rafPending = false;
 
 let _adj = null; // Map<course_id, Array<course_id>>
 let _dom = new Map(); // Map<course_id, HTMLElement>
+let _unlockedIds = new Set(); // Set<course_id>
 
 let _active = []; // elements currently blinking
 let _selId = null;
@@ -32,6 +35,9 @@ let _selEl = null;
 let _onSecondClick = null;
 
 let _lastCoursesRef = null;
+let _lastPlacementSig = null;
+
+const TERM_RE = /^([0-9]{4})-([0-2])$/;
 
 function normSigla(x) {
   return String(x || "").trim().toUpperCase();
@@ -89,11 +95,13 @@ function collect(startId) {
   const out = [];
   const visited = new Set([startId]);
   const q = [startId];
+  const enforceUnlock = _unlockedIds && _unlockedIds.size > 0;
   for (let i = 0; i < q.length; i++) {
     const cur = q[i];
     const nexts = _adj.get(cur) || [];
     for (const nid of nexts) {
       if (!nid || visited.has(nid)) continue;
+      if (enforceUnlock && !_unlockedIds.has(nid)) continue;
       visited.add(nid);
       out.push(nid);
       q.push(nid);
@@ -153,6 +161,13 @@ function refreshDomMap() {
 
 function maybeRebuildAdj() {
   const courses = state.all?.courses || null;
+  const placementSig = buildPlacementSignature();
+  if (placementSig !== _lastPlacementSig) {
+    _lastPlacementSig = placementSig;
+    buildAdj(courses);
+    _lastCoursesRef = courses;
+    return;
+  }
   if (!courses || courses === _lastCoursesRef) return;
   buildAdj(courses);
   _lastCoursesRef = courses;
@@ -178,10 +193,27 @@ function scheduleRefresh() {
 }
 
 export function buildAdj(courses) {
+  _unlockedIds = new Set();
+
   const bySigla = new Map();
+  const byId = new Map();
   for (const c of courses || []) {
     const s = normSigla(c?.sigla);
+    const cid = c?.course_id;
     if (s) bySigla.set(s, c);
+    if (cid) byId.set(String(cid), c);
+  }
+
+  const placements = buildPlacements(byId);
+  const unlocked = computeUnlocked(byId, bySigla, placements);
+  _unlockedIds = unlocked;
+
+  if (DEBUG_UNLOCK) {
+    try {
+      console.log("[unlock] unlocked (count)", unlocked.size, {
+        sample: Array.from(unlocked).slice(0, 12),
+      });
+    } catch {}
   }
 
   const tmp = new Map();
@@ -189,10 +221,10 @@ export function buildAdj(courses) {
     const cid = c?.course_id;
     if (!cid) continue;
     for (const pr of parsePrereqs(c?.prerrequisitos)) {
-      if (pr.isCo) continue;
       const req = bySigla.get(normSigla(pr.code));
       const rid = req?.course_id;
       if (!rid) continue;
+      if (!_unlockedIds.has(cid)) continue;
       if (!tmp.has(rid)) tmp.set(rid, new Set());
       tmp.get(rid).add(cid);
     }
@@ -311,4 +343,114 @@ export function initUnlock(opts = {}) {
 // Debug helpers
 export function getUnlockSelectedId() {
   return _selId;
+}
+
+function buildPlacementSignature() {
+  const p = state.draft?.placements;
+  if (!p || typeof p !== "object") return "";
+  const entries = Object.entries(p)
+    .filter(([k, v]) => k != null && v != null)
+    .map(([k, v]) => `${k}:${v}`);
+  entries.sort();
+  return entries.join("|");
+}
+
+function termParts(term_id) {
+  const m = TERM_RE.exec(term_id || "");
+  return m ? { year: parseInt(m[1], 10), sem: parseInt(m[2], 10) } : null;
+}
+
+function termIndex(term_id) {
+  const p = termParts(term_id);
+  return p ? p.year * 10 + p.sem : Infinity;
+}
+
+function buildPlacements(byId) {
+  const placements = new Map();
+  const draft = state.draft;
+  const overrides =
+    draft && typeof draft.placements === "object" ? draft.placements : {};
+
+  for (const [cid, course] of byId.entries()) {
+    const ov = overrides?.[cid];
+    const tid =
+      (ov != null && String(ov || "").trim()) || course?.term_id || null;
+    if (tid) placements.set(cid, String(tid));
+  }
+  return placements;
+}
+
+function courseTermIdx(cid, placements) {
+  return termIndex(placements.get(cid)) || Infinity;
+}
+
+function computeUnlocked(byId, bySigla, placements) {
+  const unlocked = new Set();
+  const unlockedSiglas = new Set();
+  const byTermIdx = new Map();
+
+  for (const [cid, c] of byId.entries()) {
+    if (c?.aprobado === true) {
+      unlocked.add(cid);
+      const s = normSigla(c?.sigla);
+      if (s) unlockedSiglas.add(s);
+    }
+    const idx = courseTermIdx(cid, placements);
+    if (!byTermIdx.has(idx)) byTermIdx.set(idx, []);
+    byTermIdx.get(idx).push(cid);
+  }
+
+  const termIdxs = Array.from(byTermIdx.keys()).sort((a, b) => a - b);
+
+  for (const idx of termIdxs) {
+    const ids = byTermIdx.get(idx) || [];
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const cid of ids) {
+        if (unlocked.has(cid)) continue;
+        const course = byId.get(cid);
+        if (!course) continue;
+        const sigla = normSigla(course.sigla);
+        const prereqs = parsePrereqs(course.prerrequisitos);
+
+        const prereqOk = prereqs
+          .filter((p) => !p.isCo)
+          .every((p) => {
+            const req = bySigla.get(normSigla(p.code));
+            if (!req) return false;
+            const rid = req.course_id ? String(req.course_id) : null;
+            if (!rid) return false;
+            if (req.aprobado === true) return true;
+            if (!unlockedSiglas.has(normSigla(req.sigla))) return false;
+            const ridx = courseTermIdx(rid, placements);
+            return ridx < idx;
+          });
+
+        if (!prereqOk) continue;
+
+        const coreqOk = prereqs
+          .filter((p) => p.isCo)
+          .every((p) => {
+            const req = bySigla.get(normSigla(p.code));
+            if (!req) return false;
+            const rid = req.course_id ? String(req.course_id) : null;
+            if (!rid) return false;
+            if (req.aprobado === true) return true;
+            const ridx = courseTermIdx(rid, placements);
+            if (ridx > idx) return false;
+            if (ridx < idx) return unlockedSiglas.has(normSigla(req.sigla));
+            return ridx === idx;
+          });
+
+        if (!coreqOk) continue;
+
+        unlocked.add(cid);
+        if (sigla) unlockedSiglas.add(sigla);
+        changed = true;
+      }
+    }
+  }
+
+  return unlocked;
 }
