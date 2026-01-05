@@ -2,15 +2,23 @@
 //
 // Features (must remain true):
 // - Click a course -> toggles selection (selected highlight).
-// - Courses unlocked transitively (via prerequisites graph) blink.
+// - Courses unlocked transitively (via prerequisites + corequisites graph) blink.
 // - Click outside a course clears selection.
 // - Works across re-renders (DOM changes): selection + blink are re-applied.
 //
 // Notes:
-// - We treat prerequisites in `prerrequisitos` as edges (req -> dependent).
-// - Correquisites encoded as "SIGLA(c)" are ignored for unlock graph.
+// - We treat prerequisites/corequisites in `prerrequisitos`/`corequisitos` as edges (req -> dependent),
+//   respecting term order: prereqs < term, coreqs <= term, approved always counts.
 
 import { state } from "./state.js";
+
+const DEBUG_UNLOCK = false;
+const dbg = (...args) => {
+  if (!DEBUG_UNLOCK) return;
+  try {
+    console.log("[unlock]", ...args);
+  } catch {}
+};
 
 let _installed = false;
 let _enabled = true;
@@ -32,6 +40,7 @@ let _selEl = null;
 let _onSecondClick = null;
 
 let _lastCoursesRef = null;
+let _lastPlacementSig = null;
 
 function normSigla(x) {
   return String(x || "").trim().toUpperCase();
@@ -50,6 +59,63 @@ function parsePrereqs(rawList) {
     else out.push({ code: item, isCo: false });
   }
   return out;
+}
+
+const TERM_RE = /^([0-9]{4})-([0-2])$/;
+function termParts(term_id) {
+  const m = TERM_RE.exec(term_id || "");
+  return m ? { year: parseInt(m[1], 10), sem: parseInt(m[2], 10) } : null;
+}
+function termIndex(term_id) {
+  const p = termParts(term_id);
+  return p ? p.year * 10 + p.sem : Infinity;
+}
+
+function placementsFromState(courses) {
+  const placements = new Map();
+  for (const c of courses || []) {
+    if (c?.course_id) placements.set(String(c.course_id), c.term_id != null ? String(c.term_id) : null);
+  }
+  const draftP = state?.draft?.placements && typeof state.draft.placements === "object" ? state.draft.placements : null;
+  if (draftP) {
+    for (const [cid, tid0] of Object.entries(draftP)) {
+      placements.set(String(cid), tid0 != null ? String(tid0) : null);
+    }
+  }
+  return placements;
+}
+
+function placementsSig(pMap) {
+  return Array.from(pMap.entries())
+    .map(([cid, tid]) => `${cid}:${tid ?? ""}`)
+    .sort()
+    .join("|");
+}
+
+function normalizeReqs(course) {
+  const prereq = [];
+  const coreq = [];
+  for (const pr of parsePrereqs(course?.prerrequisitos)) {
+    const code = normSigla(pr.code);
+    if (!code) continue;
+    if (pr.isCo) {
+      if (!coreq.includes(code)) coreq.push(code);
+    } else {
+      if (!prereq.includes(code)) prereq.push(code);
+    }
+  }
+  const extraCo = Array.isArray(course?.corequisitos) ? course.corequisitos : [];
+  for (const raw of extraCo) {
+    const code = normSigla(raw);
+    if (code && !coreq.includes(code)) coreq.push(code);
+  }
+  return { prereq, coreq };
+}
+
+function courseTermId(course, placements) {
+  const cid = course?.course_id != null ? String(course.course_id) : null;
+  if (cid && placements.has(cid)) return placements.get(cid);
+  return course?.term_id != null ? String(course.term_id) : null;
 }
 
 function courseIdFromEl(el) {
@@ -153,9 +219,13 @@ function refreshDomMap() {
 
 function maybeRebuildAdj() {
   const courses = state.all?.courses || null;
-  if (!courses || courses === _lastCoursesRef) return;
-  buildAdj(courses);
+  if (!courses) return;
+  const placements = placementsFromState(courses);
+  const sig = placementsSig(placements);
+  if (courses === _lastCoursesRef && sig === _lastPlacementSig) return;
+  buildAdj(courses, placements);
   _lastCoursesRef = courses;
+  _lastPlacementSig = sig;
 }
 
 function scheduleRefresh() {
@@ -177,30 +247,101 @@ function scheduleRefresh() {
   });
 }
 
-export function buildAdj(courses) {
+export function buildAdj(courses, placements = placementsFromState(courses)) {
   const bySigla = new Map();
+  const reqByCourseId = new Map();
+  const termByCourseId = new Map();
+
   for (const c of courses || []) {
-    const s = normSigla(c?.sigla);
-    if (s) bySigla.set(s, c);
+    if (!c) continue;
+    const sig = normSigla(c.sigla);
+    if (sig) bySigla.set(sig, c);
+    if (c.course_id != null) {
+      reqByCourseId.set(String(c.course_id), normalizeReqs(c));
+      const tid = courseTermId(c, placements);
+      if (tid) termByCourseId.set(String(c.course_id), tid);
+    }
   }
 
-  const tmp = new Map();
+  const approved = new Set();
   for (const c of courses || []) {
-    const cid = c?.course_id;
+    if (c?.aprobado === true) {
+      const sig = normSigla(c.sigla);
+      if (sig) approved.add(sig);
+    }
+  }
+
+  const byTerm = new Map();
+  for (const c of courses || []) {
+    const cid = c?.course_id != null ? String(c.course_id) : null;
     if (!cid) continue;
-    for (const pr of parsePrereqs(c?.prerrequisitos)) {
-      if (pr.isCo) continue;
-      const req = bySigla.get(normSigla(pr.code));
-      const rid = req?.course_id;
-      if (!rid) continue;
-      if (!tmp.has(rid)) tmp.set(rid, new Set());
-      tmp.get(rid).add(cid);
+    const tid = termByCourseId.get(cid);
+    if (!tid) continue;
+    if (!byTerm.has(tid)) byTerm.set(tid, []);
+    byTerm.get(tid).push(c);
+  }
+
+  const termOrder = Array.from(byTerm.keys()).sort((a, b) => termIndex(a) - termIndex(b));
+  const validSiglas = new Set(approved);
+  const adjSets = new Map();
+  const ensureEdge = (fromId, toId) => {
+    if (!fromId || !toId) return;
+    if (!adjSets.has(fromId)) adjSets.set(fromId, new Set());
+    adjSets.get(fromId).add(toId);
+  };
+
+  for (const tid of termOrder) {
+    const termCourses = byTerm.get(tid) || [];
+    const prevValid = new Set(validSiglas);
+    const validThisTerm = new Set();
+    const curIdx = termIndex(tid);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const c of termCourses) {
+        const cid = c?.course_id != null ? String(c.course_id) : null;
+        const sig = normSigla(c?.sigla);
+        if (!cid || !sig) continue;
+        if (validSiglas.has(sig)) continue;
+
+        const reqs = reqByCourseId.get(cid) || { prereq: [], coreq: [] };
+        const prereqOk = reqs.prereq.every((code) => prevValid.has(code));
+        if (!prereqOk) continue;
+
+        const coreqOk = reqs.coreq.every((code) => {
+          if (!code) return true;
+          if (approved.has(code)) return true;
+          if (prevValid.has(code) || validThisTerm.has(code)) return true;
+          const reqCourse = bySigla.get(code);
+          if (!reqCourse) return false;
+          const rtid = courseTermId(reqCourse, placements);
+          if (!rtid) return false;
+          return termIndex(rtid) <= curIdx;
+        });
+        if (!coreqOk) continue;
+
+        validSiglas.add(sig);
+        validThisTerm.add(sig);
+        changed = true;
+
+        for (const code of reqs.prereq) {
+          const reqCourse = bySigla.get(code);
+          const rid = reqCourse?.course_id != null ? String(reqCourse.course_id) : null;
+          if (rid) ensureEdge(rid, cid);
+        }
+        for (const code of reqs.coreq) {
+          const reqCourse = bySigla.get(code);
+          const rid = reqCourse?.course_id != null ? String(reqCourse.course_id) : null;
+          if (rid) ensureEdge(rid, cid);
+        }
+      }
     }
   }
 
   const adj = new Map();
-  for (const [k, s] of tmp.entries()) adj.set(String(k), Array.from(s).map(String));
+  for (const [k, s] of adjSets.entries()) adj.set(String(k), Array.from(s).map(String));
   _adj = adj;
+  dbg("buildAdj done", { nodes: adj.size });
 }
 
 export function clearUnlock() {
