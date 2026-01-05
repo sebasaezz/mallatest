@@ -42,6 +42,21 @@ export function ensureDraftTempCourses(draft) {
   return draft.temp_courses;
 }
 
+export function ensureDraftOverrides(draft) {
+  if (!draft || typeof draft !== "object") return [];
+  const seen = new Set();
+  const cleaned = [];
+  const raw = Array.isArray(draft.overrides) ? draft.overrides : [];
+  for (const v of raw) {
+    const s = String(v ?? "").trim();
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
+    cleaned.push(s);
+  }
+  draft.overrides = cleaned;
+  return draft.overrides;
+}
+
 export function listAllSiglas(courses) {
   const set = new Set();
   for (const c of courses || []) {
@@ -182,9 +197,11 @@ export function mergeTempCourses(realCourses, draft) {
   const seen = new Set();
 
   const real = Array.isArray(realCourses) ? realCourses : [];
+  const overridesSet = new Set(ensureDraftOverrides(draft));
   for (const c of real) {
     if (!c || c.course_id == null) continue;
     const id = String(c.course_id);
+    if (overridesSet.has(id)) continue;
     if (seen.has(id)) continue;
     seen.add(id);
     out.push(c);

@@ -435,8 +435,8 @@ function renderMenu({ course, isDraftMode }) {
   // Footer
   const foot = el("div", "modal-footer");
 
-  if (isTemp && isDraftMode) {
-    // Editable form for temporary courses in draft mode
+  if (isDraftMode) {
+    // Editable form for courses in draft mode
     const siglaInput = makeTextInput("edit_sigla", "Opcional (ej. TMP-001)");
     siglaInput.value = sigla;
 
@@ -495,17 +495,19 @@ function renderMenu({ course, isDraftMode }) {
     body.appendChild(fieldRow("Concentración", concSel));
     body.appendChild(fieldRow("", aprobadoChk.wrap));
 
-    const materialize = el("button", "btn", "Guardar en disco");
-    materialize.type = "button";
-    if (typeof _onMaterialize === "function") materialize.addEventListener("click", () => _onMaterialize(course));
-    else materialize.disabled = true;
-    foot.appendChild(materialize);
+    if (isTemp) {
+      const materialize = el("button", "btn", "Guardar en disco");
+      materialize.type = "button";
+      if (typeof _onMaterialize === "function") materialize.addEventListener("click", () => _onMaterialize(course));
+      else materialize.disabled = true;
+      foot.appendChild(materialize);
 
-    const del = el("button", "btn bad", "Eliminar");
-    del.type = "button";
-    if (typeof _onDeleteTempCourse === "function") del.addEventListener("click", () => _onDeleteTempCourse(course));
-    else del.disabled = true;
-    foot.appendChild(del);
+      const del = el("button", "btn bad", "Eliminar");
+      del.type = "button";
+      if (typeof _onDeleteTempCourse === "function") del.addEventListener("click", () => _onDeleteTempCourse(course));
+      else del.disabled = true;
+      foot.appendChild(del);
+    }
 
     const cancel = el("button", "btn", "Cancelar");
     cancel.type = "button";
@@ -568,13 +570,7 @@ function renderMenu({ course, isDraftMode }) {
     reqBlock.appendChild(reqMain);
     body.appendChild(reqBlock);
 
-    const hint = el(
-      "div",
-      "form-help",
-      isDraftMode
-        ? "(Modo borrador) Próximo: editar atributos, borrar temporales, override de cursos de disco."
-        : "(Solo lectura) Activa modo borrador para editar más adelante."
-    );
+    const hint = el("div", "form-help", "(Solo lectura) Activa modo borrador para editar.");
     body.appendChild(hint);
 
     const ok = el("button", "btn primary", "Cerrar");
