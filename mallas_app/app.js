@@ -1155,6 +1155,7 @@ async function main() {
       },
       saveDraft: async (_draft) => {},
       notify: null,
+      mergeCoursesWithTemps: () => mergeCoursesWithTemps(),
     });
 
     // Unlock view (click a course to highlight + blink unlocks)

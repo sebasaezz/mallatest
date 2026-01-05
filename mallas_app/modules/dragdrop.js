@@ -13,6 +13,13 @@
 //   - Term container: data-term-id (or dataset.termId / dataset.term_id)
 
 import { state } from "./state.js";
+import {
+  addTempCourseToDraft,
+  ensureDraftOverrides,
+  ensureDraftTempCourses,
+  listAllSiglas,
+  makeTempCourse,
+} from "./tempCourses.js";
 
 let _installed = false;
 let _dragCourseId = null;
@@ -62,6 +69,7 @@ function ensureDraft() {
   state.draft.placements = state.draft.placements || {};
   state.draft.term_order = Array.isArray(state.draft.term_order) ? state.draft.term_order : [];
   state.draft.custom_terms = Array.isArray(state.draft.custom_terms) ? state.draft.custom_terms : [];
+  ensureDraftTempCourses(state.draft);
   return state.draft;
 }
 
@@ -155,12 +163,107 @@ function canUseDragDrop() {
   return !!state.draftMode;
 }
 
+function findCourseById(courseId) {
+  const cid = String(courseId || "").trim();
+  if (!cid) return null;
+  return (
+    state.maps?.courseById?.get?.(cid) ||
+    (Array.isArray(state.all?.courses) ? state.all.courses.find((c) => String(c?.course_id || "") === cid) : null)
+  );
+}
+
+function normalizeOffered(raw) {
+  const arr = Array.isArray(raw) ? raw : raw != null ? [raw] : [];
+  const map = { "0": "V", "1": "I", "2": "P" };
+  const order = { V: 0, I: 1, P: 2 };
+  const out = [];
+  for (const x of arr) {
+    const s = String(x ?? "").trim();
+    if (!s) continue;
+    const upper = s.toUpperCase();
+    const mapped = map[upper] ?? map[s] ?? upper;
+    if (mapped && !out.includes(mapped)) out.push(mapped);
+  }
+  out.sort((a, b) => (order[a] ?? 9) - (order[b] ?? 9) || a.localeCompare(b));
+  return out;
+}
+
+function splitReqs(rawList, coreqList) {
+  const prereqs = [];
+  const coreqs = [];
+  const rawArr = Array.isArray(rawList) ? rawList : rawList != null ? [rawList] : [];
+  for (const it of rawArr) {
+    const s = String(it ?? "").trim();
+    if (!s || s.toLowerCase() === "nt") continue;
+    const m = /^(.+?)\(c\)$/i.exec(s);
+    if (m) coreqs.push(m[1].trim());
+    else prereqs.push(s);
+  }
+  const extraCoreqs = Array.isArray(coreqList) ? coreqList : coreqList != null ? [coreqList] : [];
+  for (const c of extraCoreqs) {
+    const s = String(c ?? "").trim();
+    if (s && !coreqs.includes(s)) coreqs.push(s);
+  }
+  return { prereqs, coreqs };
+}
+
+function createOverrideFromDiskCourse(course, termId, mergeCoursesWithTemps) {
+  const cid = String(course?.course_id || "").trim();
+  if (!cid) return null;
+
+  const fm = course?.frontmatter && typeof course.frontmatter === "object" ? course.frontmatter : {};
+  const offeredRaw = course?.semestreOfrecido ?? fm?.semestreOfrecido;
+  const concRaw = course?.concentracion ?? course?.concentración ?? fm?.concentracion ?? fm?.["concentración"] ?? "ex";
+  const creditosRaw = course?.creditos ?? course?.créditos ?? fm?.creditos ?? fm?.créditos;
+  const { prereqs, coreqs } = splitReqs(course?.prerrequisitos ?? fm?.prerrequisitos, course?.corequisitos ?? fm?.corequisitos);
+
+  const payload = {
+    sigla: course?.sigla ?? fm?.sigla,
+    nombre: course?.nombre ?? fm?.nombre,
+    creditos: creditosRaw,
+    prerrequisitos: prereqs,
+    correquisitos: coreqs,
+    semestreOfrecido: normalizeOffered(offeredRaw),
+    concentracion: concRaw,
+    aprobado: course?.aprobado ?? fm?.aprobado,
+  };
+
+  const existingSiglas = listAllSiglas(state.all?.courses || []);
+  const currentSigla = String(payload.sigla || "").trim().toUpperCase();
+  if (currentSigla) existingSiglas.delete(currentSigla);
+
+  const newCourse = makeTempCourse(payload, termId, { existingSiglas });
+  newCourse.temp_kind = "override";
+  newCourse.override_of = cid;
+  newCourse.aprobado = !!(course?.aprobado ?? fm?.aprobado);
+  newCourse.frontmatter = newCourse.frontmatter && typeof newCourse.frontmatter === "object" ? newCourse.frontmatter : {};
+  newCourse.frontmatter.aprobado = newCourse.aprobado;
+
+  ensureDraftOverrides(state.draft);
+  if (!state.draft.overrides.includes(cid)) state.draft.overrides.push(cid);
+  if (state.draft.placements && typeof state.draft.placements === "object") {
+    delete state.draft.placements[cid];
+  }
+
+  addTempCourseToDraft(state.draft, newCourse, termId);
+  state.dirtyDraft = true;
+  if (typeof mergeCoursesWithTemps === "function") {
+    try {
+      mergeCoursesWithTemps();
+    } catch (e) {
+      console.warn("[dragdrop] mergeCoursesWithTemps failed", e);
+    }
+  }
+  return newCourse;
+}
+
 /**
  * Install drag/drop handlers.
  * @param {{
  *   update: Function,
  *   saveDraft: (draft:any)=>Promise<any>,
  *   notify?: (kind:string, msg:string)=>any,
+ *   mergeCoursesWithTemps?: Function,
  * }} deps
  */
 export function initDragDrop(deps) {
@@ -170,6 +273,7 @@ export function initDragDrop(deps) {
   const update = typeof deps?.update === "function" ? deps.update : () => {};
   const saveDraft = typeof deps?.saveDraft === "function" ? deps.saveDraft : async () => {};
   const notify = typeof deps?.notify === "function" ? deps.notify : null;
+  const mergeCoursesWithTemps = typeof deps?.mergeCoursesWithTemps === "function" ? deps.mergeCoursesWithTemps : null;
 
   // dragstart (capture so we catch early)
   document.addEventListener(
@@ -254,9 +358,24 @@ export function initDragDrop(deps) {
       if (!cid || !tid) return;
 
       const draft = ensureDraft();
+      const course = findCourseById(cid);
+      const isTemp = !!course?.is_temp;
 
-      // Update placement
-      draft.placements[String(cid)] = String(tid);
+      let handled = false;
+      if (course && !isTemp) {
+        try {
+          const newCourse = createOverrideFromDiskCourse(course, String(tid), mergeCoursesWithTemps);
+          handled = !!newCourse;
+        } catch (e) {
+          console.warn("[dragdrop] override move failed", e);
+          notify?.("hard", "No se pudo mover el curso.");
+        }
+      }
+
+      if (!handled) {
+        // Update placement (temps or unknown fallback)
+        draft.placements[String(cid)] = String(tid);
+      }
 
       // Remove empty custom terms if needed
       removeEmptyCustomTerms(draft);
