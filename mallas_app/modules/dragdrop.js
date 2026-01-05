@@ -12,7 +12,14 @@
 //   - Course element: data-course-id (or dataset.courseId / dataset.course_id)
 //   - Term container: data-term-id (or dataset.termId / dataset.term_id)
 
-import { state } from "./state.js";
+import { rebuildMaps, state } from "./state.js";
+import {
+  addTempCourseToDraft,
+  cloneCourseAsTempOverride,
+  ensureDraftOverrides,
+  ensureDraftTempCourses,
+  mergeTempCourses,
+} from "./tempCourses.js";
 
 let _installed = false;
 let _dragCourseId = null;
@@ -63,6 +70,16 @@ function ensureDraft() {
   state.draft.term_order = Array.isArray(state.draft.term_order) ? state.draft.term_order : [];
   state.draft.custom_terms = Array.isArray(state.draft.custom_terms) ? state.draft.custom_terms : [];
   return state.draft;
+}
+
+function mergeDraftCoursesIntoState() {
+  if (!state?.all) return;
+  const baseReal = Array.isArray(state._realCourses)
+    ? state._realCourses.filter((c) => !c?.is_temp)
+    : (Array.isArray(state.all?.courses) ? state.all.courses : []).filter((c) => !c?.is_temp);
+  state._realCourses = baseReal;
+  state.all.courses = mergeTempCourses(baseReal, state.draft);
+  rebuildMaps();
 }
 
 function listCustomTermIds(draft) {
@@ -255,14 +272,34 @@ export function initDragDrop(deps) {
 
       const draft = ensureDraft();
 
+      const catalog = Array.isArray(state.all?.courses) ? state.all.courses : [];
+      const course = catalog.find((c) => String(c?.course_id || "") === String(cid));
+      let placeCid = String(cid);
+
+      // Convert disk courses into temp overrides when moved in draft mode.
+      if (course && !course.is_temp) {
+        ensureDraftTempCourses(draft);
+        const override = cloneCourseAsTempOverride(course, tid);
+        if (override) {
+          const overrides = ensureDraftOverrides(draft);
+          if (!overrides.includes(String(cid))) overrides.push(String(cid));
+          if (draft.placements && typeof draft.placements === "object") {
+            delete draft.placements[String(cid)];
+          }
+          addTempCourseToDraft(draft, override, tid);
+          placeCid = String(override.course_id);
+        }
+      }
+
       // Update placement
-      draft.placements[String(cid)] = String(tid);
+      draft.placements[String(placeCid)] = String(tid);
 
       // Remove empty custom terms if needed
       removeEmptyCustomTerms(draft);
 
       // Mark dirty and persist
       state.dirtyDraft = true;
+      mergeDraftCoursesIntoState();
 
       try {
         await saveDraft(draft);

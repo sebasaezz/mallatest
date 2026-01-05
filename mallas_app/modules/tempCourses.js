@@ -104,7 +104,7 @@ function asInt(x, def = 0) {
   return Number.isFinite(n) ? Math.trunc(n) : def;
 }
 
-function stableCourseId() {
+export function stableCourseId() {
   // Unique enough; persisted inside draft.
   return `tmp:${nowStamp()}:${rand6()}`;
 }
@@ -172,6 +172,49 @@ export function makeTempCourse(form, term_id, opts = {}) {
     nombre,
     creditos,
     aprobado: false,
+    concentracion,
+    prerrequisitos,
+    semestreOfrecido,
+    frontmatter,
+  };
+}
+
+export function cloneCourseAsTempOverride(course, term_id) {
+  if (!course || typeof course !== "object") return null;
+
+  const fm = course.frontmatter && typeof course.frontmatter === "object" ? course.frontmatter : {};
+  const sigla = String(course.sigla ?? fm.sigla ?? "").trim();
+  const nombre = String(course.nombre ?? fm.nombre ?? "").trim();
+  const creditos = asInt(course.creditos ?? course.créditos ?? fm.creditos ?? fm.créditos, 0);
+  const aprobado = !!(course.aprobado ?? fm.aprobado);
+  const concentracion = String(
+    course.concentracion ?? course.concentración ?? fm.concentracion ?? fm["concentración"] ?? "ex"
+  ).trim() || "ex";
+  const prerrequisitos = normalizePrereqList(course.prerrequisitos ?? fm.prerrequisitos);
+  const semestreOfrecido = normalizeOffered(course.semestreOfrecido ?? fm.semestreOfrecido);
+
+  const frontmatter = {
+    ...fm,
+    sigla,
+    nombre,
+    creditos,
+    aprobado,
+    concentracion,
+    prerrequisitos,
+    semestreOfrecido,
+  };
+
+  return {
+    ...course,
+    is_temp: true,
+    temp_kind: "override",
+    override_of: course.course_id,
+    course_id: stableCourseId(),
+    term_id: String(term_id ?? course.term_id ?? ""),
+    sigla,
+    nombre,
+    creditos,
+    aprobado,
     concentracion,
     prerrequisitos,
     semestreOfrecido,
