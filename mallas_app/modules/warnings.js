@@ -179,8 +179,8 @@ export function computeWarnings(terms, courses, placements, draft, config) {
   // --- Co-requisites check ---
   // Expect each course to optionally provide: corequisitos: ["SIGLA", ...]
   // Rule:
-  // - OK if the co-requisite is approved, or scheduled in the same term.
-  // - HARD warning if scheduled in a different term or not scheduled.
+  // - OK if the co-requisite is approved, or scheduled in the same term or an earlier one.
+  // - HARD warning if scheduled in a later term or not scheduled.
   // - SOFT warning if the co-requisite code is unknown.
   for (const c of Array.isArray(courses) ? courses : []) {
     if (!c) continue;
@@ -191,6 +191,7 @@ export function computeWarnings(terms, courses, placements, draft, config) {
     const cid = c.course_id != null ? String(c.course_id) : "";
     const sigla = c.sigla != null ? String(c.sigla) : "";
     const tid = termIdOfCourse(c, placements);
+    const cIdx = termIdx(tIndex, tid);
 
     const coreqs = Array.isArray(c.corequisitos)
       ? c.corequisitos.filter(Boolean).map(String)
@@ -214,10 +215,22 @@ export function computeWarnings(terms, courses, placements, draft, config) {
       if (qc.aprobado === true) continue;
 
       const qtid = termIdOfCourse(qc, placements);
+      const qIdx = termIdx(tIndex, qtid);
 
-      // Must be in the same term (or both null, which we treat as missing placement).
-      const same = tid != null && qtid != null && String(tid) === String(qtid);
-      if (same) continue;
+      if (tid == null || qtid == null || cIdx === Infinity || qIdx === Infinity) {
+        pushWarn("hard", {
+          id: `coreq:missing:${cid}:${q}:${tid || ""}`,
+          scope: "course",
+          course_id: cid,
+          sigla,
+          term_id: tid,
+          coreq: q,
+          text: `${sigla || "Curso"} requiere correquisito ${q} en el mismo semestre o en uno anterior.`,
+        });
+        continue;
+      }
+
+      if (qIdx <= cIdx) continue;
 
       pushWarn("hard", {
         id: `coreq:missing:${cid}:${q}:${tid || ""}`,
@@ -226,7 +239,7 @@ export function computeWarnings(terms, courses, placements, draft, config) {
         sigla,
         term_id: tid,
         coreq: q,
-        text: `${sigla || "Curso"} requiere correquisito ${q} en el mismo semestre.`,
+        text: `${sigla || "Curso"} requiere correquisito ${q} en el mismo semestre o en uno anterior.`,
       });
     }
   }
